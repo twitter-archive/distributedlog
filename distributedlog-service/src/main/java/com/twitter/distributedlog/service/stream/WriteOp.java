@@ -32,6 +32,7 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
     static final Logger logger = LoggerFactory.getLogger(WriteOp.class);
 
     private final byte[] payload;
+    private final boolean isRecordSet;
 
     // Stats
     private final Counter deniedWriteCounter;
@@ -52,11 +53,13 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
                    ServerConfiguration conf,
                    byte dlsnVersion,
                    Long checksum,
+                   boolean isRecordSet,
                    Feature checksumDisabledFeature,
                    AccessControlManager accessControlManager) {
         super(stream, requestStat(statsLogger, "write"), checksum, checksumDisabledFeature);
         payload = new byte[data.remaining()];
         data.get(payload);
+        this.isRecordSet = isRecordSet;
 
         StreamOpStats streamOpStats = new StreamOpStats(statsLogger, perStreamStatsLogger);
         this.successRecordCounter = streamOpStats.recordsCounter("success");
@@ -121,7 +124,11 @@ public class WriteOp extends AbstractWriteOp implements WriteOpWithPayload {
         Future<DLSN> writeResult;
         synchronized (txnLock) {
             txnId = sequencer.nextId();
-            writeResult = writer.write(new LogRecord(txnId, payload));
+            LogRecord record = new LogRecord(txnId, payload);
+            if (isRecordSet) {
+                record.setRecordSet();
+            }
+            writeResult = writer.write(record);
         }
         return writeResult.map(new AbstractFunction1<DLSN, WriteResponse>() {
             @Override

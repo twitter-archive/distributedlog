@@ -1,3 +1,26 @@
+0.3.50
+------
+- Misc bugfixes, including thread factory crash
+
+0.3.49
+------
+- Bump dependency snapshot to 2016 03 30 version
+
+0.3.48
+------
+- Improve DL documentation
+- Make write pipeline purely asynchronous
+- Able to skip corrupt entry
+- Don't log stream failfast issues
+- Script improvements
+
+0.3.47
+------
+- Add create command to service and client
+- Distributed Lock improvements
+- Cache finagle stats
+- Allow configuring replication factors per DL stream
+
 0.3.46
 ------
 - Append only reader/writer fixes

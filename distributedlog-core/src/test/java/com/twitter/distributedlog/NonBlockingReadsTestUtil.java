@@ -110,9 +110,9 @@ class NonBlockingReadsTestUtil {
                 TimeUnit.MILLISECONDS.sleep(300);
                 writer.abort();
                 LOG.debug("Recovering Segments");
-                BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
-                blplm.recoverIncompleteLogSegments();
-                blplm.close();
+                BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteHandler(true);
+                FutureUtils.result(blplm.recoverIncompleteLogSegments());
+                FutureUtils.result(blplm.asyncClose());
                 LOG.debug("Recovered Segments");
             } else {
                 FutureUtils.result(writer.write(DLMTestUtil.getLogRecordInstance(txId++)));

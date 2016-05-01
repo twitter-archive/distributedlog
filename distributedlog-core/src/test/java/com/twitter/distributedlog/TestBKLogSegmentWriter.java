@@ -4,6 +4,7 @@ import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.impl.BKLogSegmentEntryWriter;
+import com.twitter.distributedlog.io.Abortables;
 import com.twitter.distributedlog.lock.SessionLockFactory;
 import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.distributedlog.lock.ZKSessionLockFactory;
@@ -41,7 +42,6 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Charsets.UTF_8;
 import static org.junit.Assert.*;
@@ -54,9 +54,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
     @Rule
     public TestName runtime = new TestName();
 
-    private ScheduledExecutorService executorService;
-    private ScheduledExecutorService futurePoolExecutor;
-    private FuturePool futurePool;
+    private OrderedScheduler scheduler;
     private OrderedScheduler lockStateExecutor;
     private ZooKeeperClient zkc;
     private ZooKeeperClient zkc0;
@@ -66,9 +64,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
     @Override
     public void setup() throws Exception {
         super.setup();
-        executorService = Executors.newSingleThreadScheduledExecutor();
-        futurePoolExecutor = Executors.newSingleThreadScheduledExecutor();
-        futurePool = new ExecutorServiceFuturePool(futurePoolExecutor);
+        scheduler = OrderedScheduler.newBuilder().corePoolSize(1).build();
         lockStateExecutor = OrderedScheduler.newBuilder().corePoolSize(1).build();
         // build zookeeper client
         URI uri = createDLMURI("");
@@ -106,11 +102,8 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         if (null != lockStateExecutor) {
             lockStateExecutor.shutdown();
         }
-        if (null != futurePoolExecutor) {
-            futurePoolExecutor.shutdown();
-        }
-        if (null != executorService) {
-            executorService.shutdown();
+        if (null != scheduler) {
+            scheduler.shutdown();
         }
         super.teardown();
     }
@@ -157,7 +150,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                                     DistributedLock lock)
             throws IOException {
         try {
-            writer.close();
+            FutureUtils.result(writer.asyncClose());
         } finally {
             Utils.closeQuietly(lock);
         }
@@ -167,7 +160,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                                     DistributedLock lock)
             throws IOException {
         try {
-            writer.abort();
+            Abortables.abort(writer, false);
         } finally {
             Utils.closeQuietly(lock);
         }
@@ -188,8 +181,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 lock,
                 startTxId,
                 logSegmentSequenceNumber,
-                executorService,
-                futurePool,
+                scheduler,
                 NullStatsLogger.INSTANCE,
                 NullStatsLogger.INSTANCE,
                 new AlertStatsLogger(NullStatsLogger.INSTANCE, "test"),
@@ -528,7 +520,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
                 numRecords, writer.getPositionWithinLogSegment());
 
         final CountDownLatch deferLatch = new CountDownLatch(1);
-        futurePool.apply(new AbstractFunction0<Object>() {
+        writer.getFuturePool().apply(new AbstractFunction0<Object>() {
             @Override
             public Object apply() {
                 try {
@@ -541,13 +533,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         });
 
         // transmit the buffered data
-        assertEquals("Last acked tx id should still be -1",
-                -1L, writer.setReadyToFlush());
-
-        // wait until entry id advanced
-        while (writer.getLastEntryId() < 0L) {
-            TimeUnit.MILLISECONDS.sleep(200);
-        }
+        FutureUtils.result(writer.flush());
 
         // add another 10 records
         List<Future<DLSN>> anotherFutureList = new ArrayList<Future<DLSN>>(numRecords);
@@ -556,8 +542,8 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         }
         assertEquals("Last tx id should become " + (2 * numRecords - 1),
                 2 * numRecords - 1, writer.getLastTxId());
-        assertEquals("Last acked tx id should still be -1",
-                -1L, writer.getLastTxIdAcknowledged());
+        assertEquals("Last acked tx id should become " + (numRecords - 1),
+                (long) (numRecords - 1), writer.getLastTxIdAcknowledged());
         assertEquals("Last DLSN should still be " + DLSN.InvalidDLSN,
                 DLSN.InvalidDLSN, writer.getLastDLSN());
         assertEquals("Position should become " + (2 * numRecords),
@@ -595,11 +581,8 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
 
         assertEquals("Last tx id should still be " + (2 * numRecords - 1),
                 2 * numRecords - 1, writer.getLastTxId());
-        // TODO: right now the last acked txn id is only updated when flushAndSync is called
-        //       which is incorrect. it should be updated when adds completed.
-        //       this is a legacy behavior left from 0.2. we should address it with refactor later.
-        assertEquals("Last acked tx id should become " + (numRecords - 1),
-                -1, writer.getLastTxIdAcknowledged());
+        assertEquals("Last acked tx id should be still " + (numRecords - 1),
+                (long) (numRecords - 1), writer.getLastTxIdAcknowledged());
         assertEquals("Last DLSN should become " + futureList.get(futureList.size() - 1),
                 dlsns.get(futureList.size() - 1), writer.getLastDLSN());
         assertEquals("Position should become " + 2 * numRecords,
@@ -638,8 +621,6 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         futureList.add(writer.asyncWrite(controlRecord));
         assertEquals("Last tx id should be " + (numRecords - 1),
                 numRecords - 1, writer.getLastTxId());
-        assertEquals("Last acked tx id should be -1",
-                -1L, writer.getLastTxIdAcknowledged());
         assertEquals("Last DLSN should be " + DLSN.InvalidDLSN,
                 DLSN.InvalidDLSN, writer.getLastDLSN());
         assertEquals("Position should be " + numRecords,
@@ -670,7 +651,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
 
         assertEquals("Last tx id should be " + (numRecords - 1),
                 numRecords - 1, writer.getLastTxId());
-        assertEquals("Last acked tx id should be -1",
+        assertEquals("Last acked tx id should be " + (numRecords - 1),
                 numRecords - 1, writer.getLastTxIdAcknowledged());
         assertEquals("Position should be " + numRecords,
                 numRecords, writer.getPositionWithinLogSegment());
@@ -696,7 +677,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
 
         // close the writer
         closeWriterAndLock(writer, lock);
-        writer.close();
+        FutureUtils.result(writer.asyncClose());
 
         try {
             Await.result(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(1)));
@@ -722,7 +703,7 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         BKLogSegmentWriter writer =
                 createLogSegmentWriter(confLocal, 0L, -1L, lock);
 
-        writer.markEndOfStream();
+        FutureUtils.result(writer.markEndOfStream());
 
         try {
             Await.result(writer.asyncWrite(DLMTestUtil.getLogRecordInstance(1)));

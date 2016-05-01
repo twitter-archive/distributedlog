@@ -20,6 +20,7 @@ import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.service.stream.StreamManagerImpl;
 import com.twitter.distributedlog.thrift.AccessControlEntry;
 import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
+import com.twitter.distributedlog.thrift.service.HeartbeatOptions;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.util.FailpointUtils;
@@ -30,6 +31,7 @@ import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
+import com.twitter.util.Futures;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -46,7 +48,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static com.google.common.base.Charsets.UTF_8;
-import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
+import static com.twitter.distributedlog.LogRecord.MAX_LOGRECORD_SIZE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -67,10 +69,13 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
 
         for (long i = 1; i <= 10; i++) {
             logger.debug("Write entry {} to stream {}.", i, name);
-            dlClient.dlClient.write(name, ByteBuffer.wrap(("" + i).getBytes())).get();
+            Await.result(dlClient.dlClient.write(name, ByteBuffer.wrap(("" + i).getBytes())));
         }
 
-        Thread.sleep(1000);
+        HeartbeatOptions hbOptions = new HeartbeatOptions();
+        hbOptions.setSendHeartBeatToReader(true);
+        // make sure the first log segment of each stream created
+        FutureUtils.result(dlClient.dlClient.heartbeat(name));
 
         DistributedLogManager dlm = DLMTestUtil.createNewDLM(name, conf, getUri());
         LogReader reader = dlm.getInputStream(1);
@@ -269,10 +274,8 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         }
 
         validateFailedAsLogRecordTooLong(futures.get(writeCount));
-        int failed = validateAllFailedAsCancelled(futures, writeCount+1, futures.size());
-
+        FutureUtils.result(Futures.collect(futures.subList(writeCount + 1, 2 * writeCount + 1)));
         assertEquals(writeCount, succeeded);
-        assertEquals(writeCount, failed);
     }
 
     @Test(timeout = 60000)
@@ -291,8 +294,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
 
         List<Future<DLSN>> futures = dlClient.dlClient.writeBulk(name, writes);
         validateFailedAsLogRecordTooLong(futures.get(0));
-        int failed = validateAllFailedAsCancelled(futures, 1, futures.size());
-        assertEquals(writeCount, failed);
+        FutureUtils.result(Futures.collect(futures.subList(1, writeCount + 1)));
     }
 
     @Test(timeout = 60000)
@@ -429,7 +431,7 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
         } catch (LogNotFoundException lnfe) {
             // expected
         }
-        reader101.close();
+        FutureUtils.result(reader101.asyncClose());
         dlm101.close();
 
         txid = 201;

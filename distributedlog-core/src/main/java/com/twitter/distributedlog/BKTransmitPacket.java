@@ -9,18 +9,22 @@ import java.util.concurrent.TimeUnit;
 
 class BKTransmitPacket {
 
-    private final LogRecordSetBuffer recordSet;
+    private final EntryBuffer recordSet;
     private final long transmitTime;
-    private Promise<Integer> transmitComplete;
+    private final Promise<Integer> transmitComplete;
 
-    BKTransmitPacket(LogRecordSetBuffer recordSet) {
+    BKTransmitPacket(EntryBuffer recordSet) {
         this.recordSet = recordSet;
         this.transmitTime = System.nanoTime();
         this.transmitComplete = new Promise<Integer>();
     }
 
-    LogRecordSetBuffer getRecordSet() {
+    EntryBuffer getRecordSet() {
         return recordSet;
+    }
+
+    Promise<Integer> getTransmitFuture() {
+        return transmitComplete;
     }
 
     /**

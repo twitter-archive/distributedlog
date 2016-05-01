@@ -3,6 +3,8 @@ package com.twitter.distributedlog.admin;
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
 
+import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.util.Utils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
 import org.junit.After;
@@ -55,17 +57,21 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
     @Test(timeout = 60000)
     @SuppressWarnings("deprecation")
     public void testChangeSequenceNumber() throws Exception {
+        DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setLogSegmentSequenceNumberValidationEnabled(false);
+
         URI uri = createDLMURI("/change-sequence-number");
         zooKeeperClient.get().create(uri.getPath(), new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         com.twitter.distributedlog.DistributedLogManagerFactory factory =
-                new com.twitter.distributedlog.DistributedLogManagerFactory(conf, uri);
+                new com.twitter.distributedlog.DistributedLogManagerFactory(confLocal, uri);
 
         String streamName = "change-sequence-number";
 
         // create completed log segments
         DistributedLogManager dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
-        DLMTestUtil.generateCompletedLogSegments(dlm, conf, 4, 10);
-        DLMTestUtil.injectLogSegmentWithGivenLogSegmentSeqNo(dlm, conf, 5, 41, false, 10, true);
+        DLMTestUtil.generateCompletedLogSegments(dlm, confLocal, 4, 10);
+        DLMTestUtil.injectLogSegmentWithGivenLogSegmentSeqNo(dlm, confLocal, 5, 41, false, 10, true);
         dlm.close();
 
         // create a reader
@@ -83,7 +89,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
         }
 
         dlm = factory.createDistributedLogManagerWithSharedClients(streamName);
-        DLMTestUtil.injectLogSegmentWithGivenLogSegmentSeqNo(dlm, conf, 3L, 5 * 10 + 1, true, 10, false);
+        DLMTestUtil.injectLogSegmentWithGivenLogSegmentSeqNo(dlm, confLocal, 3L, 5 * 10 + 1, true, 10, false);
 
         // Wait for reader to be aware of new log segments
         TimeUnit.SECONDS.sleep(2);
@@ -102,7 +108,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
         // Dryrun
         DistributedLogAdmin.fixInprogressSegmentWithLowerSequenceNumber(factory,
-                new DryrunLogSegmentMetadataStoreUpdater(conf, getLogSegmentMetadataStore(factory)), streamName, false, false);
+                new DryrunLogSegmentMetadataStoreUpdater(confLocal, getLogSegmentMetadataStore(factory)), streamName, false, false);
 
         // Wait for reader to be aware of new log segments
         TimeUnit.SECONDS.sleep(2);
@@ -120,7 +126,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
         // Actual run
         DistributedLogAdmin.fixInprogressSegmentWithLowerSequenceNumber(factory,
-                LogSegmentMetadataStoreUpdater.createMetadataUpdater(conf, getLogSegmentMetadataStore(factory)), streamName, false, false);
+                LogSegmentMetadataStoreUpdater.createMetadataUpdater(confLocal, getLogSegmentMetadataStore(factory)), streamName, false, false);
 
         // Wait for reader to be aware of new log segments
         TimeUnit.SECONDS.sleep(2);
@@ -145,7 +151,7 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
         assertTrue(dlsn.compareTo(new DLSN(7, Long.MIN_VALUE, Long.MIN_VALUE)) < 0);
         assertTrue(dlsn.compareTo(new DLSN(6, -1, Long.MIN_VALUE)) > 0);
 
-        reader.close();
+        Utils.close(reader);
         readDLM.close();
 
         dlm.close();

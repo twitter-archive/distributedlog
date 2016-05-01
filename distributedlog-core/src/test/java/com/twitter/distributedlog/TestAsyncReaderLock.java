@@ -10,11 +10,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.twitter.distributedlog.exceptions.LockCancelledException;
+import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.lock.LockClosedException;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Await;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.Future;
@@ -24,6 +26,7 @@ import org.junit.Test;
 import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction1;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -61,7 +64,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         DLMTestUtil.verifyLogRecord(record);
 
         String readLockPath = reader1.bkLedgerManager.getReadLockPath();
-        reader1.close();
+        Utils.close(reader1);
 
         // simulate a old stream created without readlock path
         writer.bkDistributedLogManager.getWriterZKC().get().delete(readLockPath, -1);
@@ -87,9 +90,13 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         futureReader1.flatMap(new ExceptionalFunction<AsyncLogReader, Future<Void>>() {
             @Override
             public Future<Void> applyE(AsyncLogReader reader) throws IOException {
-                reader.close();
-                latch.countDown();
-                return null;
+                return reader.asyncClose().map(new AbstractFunction1<Void, Void>() {
+                    @Override
+                    public Void apply(Void result) {
+                        latch.countDown();
+                        return null;
+                    }
+                });
             }
         });
 
@@ -137,7 +144,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
 
         Thread.sleep(1000);
         assertEquals(false, acquired.get());
-        reader1.close();
+        Utils.close(reader1);
 
         acquiredLatch.await();
         assertEquals(true, acquired.get());
@@ -177,11 +184,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
                 @Override
                 public void onSuccess(AsyncLogReader reader) {
                     acquiredLatch.countDown();
-                    try {
-                        reader.close();
-                    } catch (IOException ioe) {
-                        fail("unexpected exception on reader close");
-                    }
+                    reader.asyncClose();
                 }
                 @Override
                 public void onFailure(Throwable cause) {
@@ -253,7 +256,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
             Await.result(reader1.readNext());
         }
 
-        reader1.close();
+        Utils.close(reader1);
         dlm0.close();
         dlm1.close();
     }
@@ -276,12 +279,14 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         try {
             FutureUtils.cancel(futureReader2);
             Await.result(futureReader2);
+            fail("Should fail getting log reader as it is cancelled");
         } catch (LockClosedException ex) {
         } catch (LockCancelledException ex) {
+        } catch (OwnershipAcquireFailedException oafe) {
         }
 
         futureReader2 = dlm2.getAsyncLogReaderWithLock(DLSN.InitialDLSN);
-        reader1.close();
+        Utils.close(reader1);
 
         Await.result(futureReader2);
 
@@ -472,7 +477,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         // Reader1 is done, someone else can take over. Since reader2 was
         // aborted, reader3 should take its place.
         assertFalse(listener3.done());
-        reader1.close();
+        Utils.close(reader1);
         listener3.getLatch().await();
         assertTrue(listener3.done());
         assertFalse(listener3.failed());
@@ -485,7 +490,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
             // Can't get this one to close it--the dlm will take care of it.
         }
 
-        Await.result(futureReader3).close();
+        Utils.close(Await.result(futureReader3));
 
         dlm1.close();
         dlm2.close();
@@ -494,7 +499,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         executorService.shutdown();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testAsyncReadWithSubscriberId() throws Exception {
         String name = "distrlog-asyncread-with-sbuscriber-id";
         String subscriberId = "asyncreader";
@@ -535,7 +540,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
             record = Await.result(reader0.readNext());
         }
         assertEquals(txid - 1, numTxns);
-        reader0.close();
+        Utils.close(reader0);
 
         SubscriptionsStore subscriptionsStore = dlm.getSubscriptionsStore();
         Await.result(subscriptionsStore.advanceCommitPosition(subscriberId, readDLSN));
@@ -558,7 +563,7 @@ public class TestAsyncReaderLock extends TestDistributedLogBase {
         }
         assertEquals(txid - 1, startTxID);
         assertEquals(20, numTxns);
-        reader1.close();
+        Utils.close(reader1);
 
         dlm.close();
     }

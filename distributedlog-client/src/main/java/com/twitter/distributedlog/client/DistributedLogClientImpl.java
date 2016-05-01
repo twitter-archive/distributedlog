@@ -6,6 +6,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
+import com.twitter.distributedlog.LogRecordSetBuffer;
 import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.client.proxy.HostProvider;
 import com.twitter.distributedlog.client.proxy.ProxyClient;
@@ -408,6 +409,16 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
         }
     }
 
+    class WriteRecordSetOp extends WriteOp {
+
+        WriteRecordSetOp(String name, LogRecordSetBuffer recordSet) {
+            super(name, recordSet.getBuffer());
+            ctx.setIsRecordSet(true);
+        }
+
+    }
+
+
     class ReleaseOp extends AbstractWriteOp {
 
         ReleaseOp(String name) {
@@ -698,6 +709,13 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
     }
 
     @Override
+    public Future<DLSN> writeRecordSet(String stream, final LogRecordSetBuffer recordSet) {
+        final WriteRecordSetOp op = new WriteRecordSetOp(stream, recordSet);
+        sendRequest(op);
+        return op.result();
+    }
+
+    @Override
     public List<Future<DLSN>> writeBulk(String stream, List<ByteBuffer> data) {
         if (data.size() > 0) {
             final BulkWriteOp op = new BulkWriteOp(stream, data);
@@ -817,7 +835,6 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                     // status code NOT_READY is returned if failfast is enabled in the server. don't redirect
                     // since the proxy may still own the stream.
                     case STREAM_NOT_READY:
-                        logger.error("Failed to write request to {} : {}", op.stream, header);
                         op.fail(addr, DLException.of(header));
                         break;
                     case SERVICE_UNAVAILABLE:
@@ -883,7 +900,6 @@ public class DistributedLogClientImpl implements DistributedLogClient, MonitorSe
                                          StreamOp op,
                                          ResponseHeader header) {
         if (streamFailfast) {
-            logger.error("Failed to write request to {} : {}; skipping redirect to fail fast", op.stream, header);
             op.fail(addr, DLException.of(header));
         } else {
             redirect(op, null);

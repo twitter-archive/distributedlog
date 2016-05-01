@@ -6,7 +6,9 @@ import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.common.zookeeper.ZooKeeperClient;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.benchmark.utils.ShiftableRateLimiter;
+import com.twitter.distributedlog.client.DistributedLogMultiStreamWriter;
 import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.io.CompressionCodec;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
 import com.twitter.distributedlog.util.SchedulerUtils;
@@ -57,6 +59,7 @@ public class WriterWorker implements Worker {
     final boolean handshakeWithClientInfo;
     final int sendBufferSize;
     final int recvBufferSize;
+    final boolean enableBatching;
 
     volatile boolean running = true;
 
@@ -82,7 +85,8 @@ public class WriterWorker implements Worker {
                         boolean thriftmux,
                         boolean handshakeWithClientInfo,
                         int sendBufferSize,
-                        int recvBufferSize) {
+                        int recvBufferSize,
+                        boolean enableBatching) {
         Preconditions.checkArgument(startStreamId <= endStreamId);
         Preconditions.checkArgument(!finagleNames.isEmpty() || !serverSetPaths.isEmpty());
         this.streamPrefix = streamPrefix;
@@ -105,6 +109,7 @@ public class WriterWorker implements Worker {
         this.handshakeWithClientInfo = handshakeWithClientInfo;
         this.sendBufferSize = sendBufferSize;
         this.recvBufferSize = recvBufferSize;
+        this.enableBatching = enableBatching;
         this.finagleNames = finagleNames;
         this.serverSets = new ServerSet[serverSetPaths.size()];
         this.zkClients = new ZooKeeperClient[serverSetPaths.size()];
@@ -230,10 +235,23 @@ public class WriterWorker implements Worker {
 
         final int idx;
         final DistributedLogClient dlc;
+        DistributedLogMultiStreamWriter writer = null;
 
         Writer(int idx) {
             this.idx = idx;
             this.dlc = buildDlogClient();
+            if (enableBatching) {
+                writer = DistributedLogMultiStreamWriter.newBuilder()
+                        .client(this.dlc)
+                        .streams(streamNames)
+                        .compressionCodec(CompressionCodec.Type.NONE)
+                        .flushIntervalMs(20)
+                        .bufferSize(64 * 1024)
+                        .firstSpeculativeTimeoutMs(50)
+                        .maxSpeculativeTimeoutMs(200)
+                        .speculativeBackoffMultiplier(2)
+                        .build();
+            }
         }
 
         @Override
@@ -247,8 +265,16 @@ public class WriterWorker implements Worker {
                 if (null == data) {
                     break;
                 }
-                dlc.write(streamName, data).addEventListener(
-                        new TimedRequestHandler(streamName, requestMillis));
+                if (null != writer) {
+                    writer.write(data).addEventListener(
+                            new TimedRequestHandler(streamName, requestMillis));
+                } else {
+                    dlc.write(streamName, data).addEventListener(
+                            new TimedRequestHandler(streamName, requestMillis));
+                }
+            }
+            if (null != writer) {
+                writer.close();
             }
             dlc.close();
         }

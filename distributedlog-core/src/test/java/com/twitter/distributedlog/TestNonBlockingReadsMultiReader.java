@@ -3,6 +3,7 @@ package com.twitter.distributedlog;
 import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.Utils;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -105,7 +106,7 @@ public class TestNonBlockingReadsMultiReader extends TestDistributedLogBase {
                             }
                         }
                         LOG.info("Completed writing record at {}", dlsn);
-                        writer.close();
+                        Utils.close(writer);
                     } catch (DLInterruptedException die) {
                         Thread.currentThread().interrupt();
                     } catch (IOException e) {

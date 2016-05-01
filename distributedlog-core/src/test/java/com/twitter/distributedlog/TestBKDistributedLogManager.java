@@ -30,6 +30,7 @@ import com.twitter.distributedlog.impl.ZKLogSegmentMetadataStore;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
+import com.twitter.distributedlog.util.Utils;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -78,10 +79,10 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             }
             BKLogSegmentWriter perStreamLogWriter = writer.getCachedLogWriter();
             writer.closeAndComplete();
-            BKLogWriteHandler blplm = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
+            BKLogWriteHandler blplm = dlm.createWriteHandler(true);
             assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1,
                                                                 perStreamLogWriter.getLogSegmentSequenceNumber()), false));
-            blplm.close();
+            FutureUtils.result(blplm.asyncClose());
         }
 
         LogWriter writer = dlm.startLogSegmentNonPartitioned();
@@ -118,10 +119,10 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         BKLogSegmentWriter perStreamLogWriter = out.getCachedLogWriter();
         out.closeAndComplete();
 
-        BKLogWriteHandler blplm = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
+        BKLogWriteHandler blplm = dlm.createWriteHandler(true);
         assertNotNull(zkc.exists(blplm.completedLedgerZNode(1, 100,
                 perStreamLogWriter.getLogSegmentSequenceNumber()), false));
-        blplm.close();
+        FutureUtils.result(blplm.asyncClose());
     }
 
     @Test(timeout = 60000)
@@ -209,12 +210,12 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             }
             BKLogSegmentWriter perStreamLogWriter = out.getCachedLogWriter();
             out.closeAndComplete();
-            BKLogWriteHandler blplm = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
+            BKLogWriteHandler blplm = dlm.createWriteHandler(true);
 
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(start, txid - 1,
                                                       perStreamLogWriter.getLogSegmentSequenceNumber()), false));
-            blplm.close();
+            FutureUtils.result(blplm.asyncClose());
         }
 
         BKSyncLogWriter out = dlm.startLogSegmentNonPartitioned();
@@ -346,11 +347,11 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             }
             BKLogSegmentWriter perStreamLogWriter = out.getCachedLogWriter();
             out.closeAndComplete();
-            BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
+            BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteHandler(true);
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(start, txid - 1,
                                                       perStreamLogWriter.getLogSegmentSequenceNumber()), false));
-            blplm.close();
+            FutureUtils.result(blplm.asyncClose());
         }
         BKSyncLogWriter out = (BKSyncLogWriter)dlm.startLogSegmentNonPartitioned();
         for (long j = 1; j <= DEFAULT_SEGMENT_SIZE / 2; j++) {
@@ -422,7 +423,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             }
             BKLogSegmentWriter writer = out.getCachedLogWriter();
             out.closeAndComplete();
-            BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
+            BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteHandler(true);
 
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(start, txid - 1,
@@ -433,7 +434,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(txid - 1, txid - 1,
                                                       perStreamLogWriter.getLogSegmentSequenceNumber()), false));
-            blplm.close();
+            FutureUtils.result(blplm.asyncClose());
         }
 
         BKSyncLogWriter out = (BKSyncLogWriter)dlm.startLogSegmentNonPartitioned();
@@ -460,7 +461,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             record = Await.result(asyncreader.readNext());
         }
         assertEquals((txid - 1), numTrans);
-        asyncreader.close();
+        Utils.close(asyncreader);
 
         LogReader reader = dlm.getInputStream(1);
         numTrans = 0;
@@ -631,16 +632,16 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
 
             if (i < 2) {
                 writer.closeAndComplete();
-                BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
+                BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteHandler(true);
                 assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1,
                                                                     perStreamLogWriter.getLogSegmentSequenceNumber()), false));
-                blplm.close();
+                FutureUtils.result(blplm.asyncClose());
             } else {
                 writer.markEndOfStream();
-                BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
+                BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteHandler(true);
                 assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, DistributedLogConstants.MAX_TXID,
                                                                     perStreamLogWriter.getLogSegmentSequenceNumber()), false));
-                blplm.close();
+                FutureUtils.result(blplm.asyncClose());
             }
         }
         return txid;
@@ -773,7 +774,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         } catch (LogRecordTooLongException exc) {
             exceptionEncountered = true;
         } finally {
-            out.close();
+            FutureUtils.result(out.asyncClose());
         }
         bkdlmAndClients.close();
         assert(exceptionEncountered);
@@ -799,7 +800,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         } catch (LogRecordTooLongException exc) {
             exceptionEncountered = true;
         } finally {
-            out.close();
+            FutureUtils.result(out.asyncClose());
         }
         bkdlmAndClients.close();
         assert(!exceptionEncountered);
@@ -821,10 +822,10 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             BKLogSegmentWriter perStreamLogWriter = writer.getCachedLogWriter();
 
             writer.closeAndComplete();
-            BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
+            BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteHandler(true);
             assertNotNull(zkc.exists(blplm.completedLedgerZNode(start, txid - 1,
                                                                 perStreamLogWriter.getLogSegmentSequenceNumber()), false));
-            blplm.close();
+            FutureUtils.result(blplm.asyncClose());
         }
 
         LogReader reader = dlm.getInputStream(1);
@@ -882,7 +883,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             }
             BKLogSegmentWriter perStreamLogWriter = out.getCachedLogWriter();
             out.closeAndComplete();
-            BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteLedgerHandler(conf.getUnpartitionedStreamName(), true);
+            BKLogWriteHandler blplm = ((BKDistributedLogManager) (dlm)).createWriteHandler(true);
 
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(start, txid - 1,
@@ -893,7 +894,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             assertNotNull(
                 zkc.exists(blplm.completedLedgerZNode(txid - 1, txid - 1,
                                                       writer.getLogSegmentSequenceNumber()), false));
-            blplm.close();
+            FutureUtils.result(blplm.asyncClose());
         }
 
         BKSyncLogWriter out = (BKSyncLogWriter)dlm.startLogSegmentNonPartitioned();
@@ -1071,7 +1072,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
         } catch (InvalidStreamNameException e) {
         } finally {
             if (null != writer) {
-                writer.close();
+                Utils.close(writer);
             }
             if (null != dlm) {
                 dlm.close();
@@ -1190,7 +1191,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
                 exceptionEncountered = true;
             }
             assertTrue(exceptionEncountered);
-            reader.close();
+            Utils.close(reader);
         }
 
         updater = LogSegmentMetadataStoreUpdater.createMetadataUpdater(conf, metadataStore);
@@ -1239,7 +1240,7 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             LogRecordWithDLSN record = Await.result(reader.readNext());
             assertTrue(record != null);
             assertEquals(truncDLSN, record.getDlsn());
-            reader.close();
+            Utils.close(reader);
         }
 
 
@@ -1265,9 +1266,8 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
             LogRecordWithDLSN record = Await.result(reader.readNext());
             assertTrue(record != null);
             assertEquals(beyondTruncDLSN, record.getDlsn());
-            reader.close();
+            Utils.close(reader);
         }
-
 
         zookeeperClient.close();
     }

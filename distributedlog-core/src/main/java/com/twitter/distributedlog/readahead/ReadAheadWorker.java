@@ -21,9 +21,13 @@ import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.injector.AsyncFailureInjector;
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
+import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
+import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
@@ -47,8 +51,8 @@ import scala.runtime.BoxedUnit;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -76,7 +80,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Exceptions Handling Phase: Handle all the exceptions and properly schedule next readahead request.
  * </p>
  */
-public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
+public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher, AsyncCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(ReadAheadWorker.class);
 
@@ -95,13 +99,13 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
 
     // resources
     private final ZooKeeperClient zkc;
-    protected final ScheduledExecutorService readAheadExecutor;
+    protected final OrderedScheduler scheduler;
     private final LedgerHandleCache handleCache;
     private final ReadAheadCache readAheadCache;
 
     // ReadAhead Status
     volatile boolean running = true;
-    private final Object stopCond = new Object();
+    Promise<Void> stopPromise = null;
     private volatile boolean isCatchingUp = true;
     private volatile boolean logDeleted = false;
     private volatile boolean readAheadError = false;
@@ -147,7 +151,10 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
     final Phase schedulePhase = new ScheduleReadAheadPhase();
     final Phase exceptionHandler = new ExceptionHandlePhase(schedulePhase);
     final Phase readAheadPhase =
-            new CheckInProgressChangedPhase(new OpenLedgerPhase(new ReadEntriesPhase(schedulePhase)));
+            new StoppablePhase(
+                    new CheckInProgressChangedPhase(
+                            new OpenLedgerPhase(
+                                    new ReadEntriesPhase(schedulePhase))));
 
     //
     // Stats, Tracing and Failure Injection
@@ -160,6 +167,8 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
     final ReadAheadTracker tracker;
     final Stopwatch resumeStopWatch;
     final Stopwatch lastLedgerCloseDetected = Stopwatch.createUnstarted();
+    // Misc
+    private final boolean readAheadSkipBrokenEntries;
     // Stats
     private final AlertStatsLogger alertStatsLogger;
     private final StatsLogger readAheadPerStreamStatsLogger;
@@ -168,6 +177,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
     private final Counter readAheadEntryPiggyBackMisses;
     private final Counter readAheadReadLACAndEntryCounter;
     private final Counter readAheadCacheFullCounter;
+    private final Counter readAheadSkippedBrokenEntries;
     private final Counter idleReaderWarn;
     private final OpStatsLogger readAheadReadEntriesStat;
     private final OpStatsLogger readAheadCacheResumeStat;
@@ -182,7 +192,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                            ZKLogMetadataForReader logMetadata,
                            BKLogHandler ledgerManager,
                            ZooKeeperClient zkc,
-                           ScheduledExecutorService readAheadExecutor,
+                           OrderedScheduler scheduler,
                            LedgerHandleCache handleCache,
                            LedgerReadPosition startPosition,
                            ReadAheadCache readAheadCache,
@@ -203,7 +213,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         this.notification = notification;
         // Resources
         this.zkc = zkc;
-        this.readAheadExecutor = readAheadExecutor;
+        this.scheduler = scheduler;
         this.handleCache = handleCache;
         this.readAheadCache = readAheadCache;
         // Readahead status
@@ -221,6 +231,8 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         this.tracker = new ReadAheadTracker(logMetadata.getLogName(), readAheadCache,
                 ReadAheadPhase.SCHEDULE_READAHEAD, readAheadPerStreamStatsLogger);
         this.resumeStopWatch = Stopwatch.createUnstarted();
+        // Misc
+        this.readAheadSkipBrokenEntries = conf.getReadAheadSkipBrokenEntries();
         // Stats
         this.alertStatsLogger = alertStatsLogger;
         this.readAheadPerStreamStatsLogger = readAheadPerStreamStatsLogger;
@@ -231,6 +243,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         readAheadReadEntriesStat = readAheadStatsLogger.getOpStatsLogger("read_entries");
         readAheadReadLACAndEntryCounter = readAheadStatsLogger.getCounter("read_lac_and_entry_counter");
         readAheadCacheFullCounter = readAheadStatsLogger.getCounter("cache_full");
+        readAheadSkippedBrokenEntries = readAheadStatsLogger.getCounter("skipped_broken_entries");
         readAheadCacheResumeStat = readAheadStatsLogger.getOpStatsLogger("resume");
         readAheadLacLagStats = readAheadStatsLogger.getOpStatsLogger("read_lac_lag");
         longPollInterruptionStat = readAheadStatsLogger.getOpStatsLogger("long_poll_interruption");
@@ -260,6 +273,9 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         if (null != notification) {
             notification.notifyOnError();
         }
+        if (null != stopPromise) {
+            FutureUtils.setValue(stopPromise, null);
+        }
     }
 
     void setReadAheadInterrupted(ReadAheadTracker tracker) {
@@ -267,6 +283,9 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         tracker.enterPhase(ReadAheadPhase.INTERRUPTED);
         if (null != notification) {
             notification.notifyOnError();
+        }
+        if (null != stopPromise) {
+            FutureUtils.setValue(stopPromise, null);
         }
     }
 
@@ -276,6 +295,17 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         if (null != notification) {
             notification.notifyOnError();
         }
+        if (null != stopPromise) {
+            FutureUtils.setValue(stopPromise, null);
+        }
+    }
+
+    private void setReadAheadStopped() {
+        tracker.enterPhase(ReadAheadPhase.STOPPED);
+        if (null != stopPromise) {
+            FutureUtils.setValue(stopPromise, null);
+        }
+        LOG.info("Stopped ReadAheadWorker for {}", fullyQualifiedName);
     }
 
     public void checkClosedOrInError()
@@ -306,7 +336,9 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         schedulePhase.process(BKException.Code.OK);
     }
 
-    public void stop() {
+    @Override
+    public Future<Void> asyncClose() {
+        LOG.info("Stopping Readahead worker for {}", fullyQualifiedName);
         running = false;
 
         this.zkc.getWatcherManager()
@@ -322,17 +354,16 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         if (null != notification) {
             notification.notifyOnOperationComplete();
         }
-        try {
-            synchronized (stopCond) {
-                // It would take at most 2 times the read ahead wait time for the schedule phase
-                // to be executed
-                stopCond.wait(2 * conf.getReadAheadWaitTime());
-            }
-            LOG.info("Done waiting for ReadAhead Worker to stop {}", fullyQualifiedName);
-        } catch (InterruptedException exc) {
-            LOG.info("{}: Interrupted while waiting for ReadAhead Worker to stop", fullyQualifiedName, exc);
+        if (null == stopPromise) {
+            return Future.Void();
         }
-
+        return FutureUtils.ignore(FutureUtils.raiseWithin(
+                stopPromise,
+                2 * conf.getReadAheadWaitTime(),
+                TimeUnit.MILLISECONDS,
+                new TimeoutException("Timeout on waiting for ReadAhead worker to stop " + fullyQualifiedName),
+                scheduler,
+                fullyQualifiedName));
     }
 
     @Override
@@ -405,7 +436,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         }
 
         try {
-            readAheadExecutor.submit(addRTEHandler(runnable));
+            scheduler.submit(addRTEHandler(runnable));
         } catch (RejectedExecutionException ree) {
             setReadAheadError(tracker);
         }
@@ -416,10 +447,10 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
             InterruptibleScheduledRunnable task = new InterruptibleScheduledRunnable(runnable);
             boolean executeImmediately = setMetadataNotification(task);
             if (executeImmediately) {
-                readAheadExecutor.submit(addRTEHandler(task));
+                scheduler.submit(addRTEHandler(task));
                 return;
             }
-            readAheadExecutor.schedule(addRTEHandler(task), timeInMillis, TimeUnit.MILLISECONDS);
+            scheduler.schedule(addRTEHandler(task), timeInMillis, TimeUnit.MILLISECONDS);
             readAheadWorkerWaits.inc();
         } catch (RejectedExecutionException ree) {
             setReadAheadError(tracker);
@@ -472,11 +503,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         @Override
         void process(int rc) {
             if (!running) {
-                tracker.enterPhase(ReadAheadPhase.STOPPED);
-                synchronized (stopCond) {
-                    stopCond.notifyAll();
-                }
-                LOG.info("Stopped ReadAheadWorker for {}", fullyQualifiedName);
+                setReadAheadStopped();
                 return;
             }
             tracker.enterPhase(ReadAheadPhase.SCHEDULE_READAHEAD);
@@ -552,6 +579,31 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                         fullyQualifiedName, BKException.create(rc));
             }
             // schedule next read ahead
+            next.process(BKException.Code.OK);
+        }
+    }
+
+    /**
+     * A phase that could be stopped by a stopPromise
+     */
+    final class StoppablePhase extends Phase {
+
+        StoppablePhase(Phase next) {
+            super(next);
+        }
+
+        @Override
+        void process(int rc) {
+            if (!running) {
+                setReadAheadStopped();
+                return;
+            }
+
+            if (null == stopPromise) {
+                stopPromise = new Promise<Void>();
+            }
+
+            // proceed the readahead request
             next.process(BKException.Code.OK);
         }
     }
@@ -723,11 +775,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         @Override
         void process(int rc) {
             if (!running) {
-                tracker.enterPhase(ReadAheadPhase.STOPPED);
-                synchronized (stopCond) {
-                    stopCond.notifyAll();
-                }
-                LOG.info("Stopped ReadAheadWorker for {}", fullyQualifiedName);
+                setReadAheadStopped();
                 return;
             }
 
@@ -806,6 +854,11 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
 
         @Override
         void process(int rc) {
+            if (!running) {
+                setReadAheadStopped();
+                return;
+            }
+
             tracker.enterPhase(ReadAheadPhase.OPEN_LEDGER);
 
             if (currentMetadata.isInProgress()) { // we don't want to fence the current journal
@@ -1111,7 +1164,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
         }
     }
 
-    final class ReadEntriesPhase extends Phase implements AsyncCallback.ReadCallback, Runnable {
+    final class ReadEntriesPhase extends Phase implements Runnable {
 
         boolean cacheFull = false;
         long lastAddConfirmed = -1;
@@ -1122,6 +1175,11 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
 
         @Override
         void process(int rc) {
+            if (!running) {
+                setReadAheadStopped();
+                return;
+            }
+
             tracker.enterPhase(ReadAheadPhase.READ_ENTRIES);
 
             cacheFull = false;
@@ -1153,8 +1211,8 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                         new Object[] {nextReadAheadPosition, currentMetadata, fullyQualifiedName });
             }
             int readAheadBatchSize = dynConf.getReadAheadBatchSize();
-            long startEntryId = nextReadAheadPosition.getEntryId();
-            long endEntryId = Math.min(lastAddConfirmed, (nextReadAheadPosition.getEntryId() + readAheadBatchSize - 1));
+            final long startEntryId = nextReadAheadPosition.getEntryId();
+            final long endEntryId = Math.min(lastAddConfirmed, (nextReadAheadPosition.getEntryId() + readAheadBatchSize - 1));
 
             if (endEntryId <= readAheadBatchSize && conf.getTraceReadAheadMetadataChanges()) {
                 // trace first read batch
@@ -1168,44 +1226,72 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
 
                         @Override
                         public void onSuccess(Enumeration<LedgerEntry> entries) {
-                            readComplete(BKException.Code.OK, null, entries, readCtx);
+                            int rc = BKException.Code.OK;
+
+                            // If the range includes an entry id that is a multiple of 10, simulate corruption.
+                            if (failureInjector.shouldInjectCorruption() && rangeContainsSimulatedBrokenEntry(startEntryId, endEntryId)) {
+                                rc = BKException.Code.DigestMatchException;
+                            }
+                            readComplete(rc, null, entries, readCtx, startEntryId, endEntryId);
                         }
 
                         @Override
                         public void onFailure(Throwable cause) {
-                            readComplete(FutureUtils.bkResultCode(cause), null, null, readCtx);
+                            readComplete(FutureUtils.bkResultCode(cause), null, null, readCtx, startEntryId, endEntryId);
                         }
                     });
         }
 
-        @Override
+        private boolean rangeContainsSimulatedBrokenEntry(long start, long end) {
+            for (long i = start; i <= end; i++) {
+                if (i % 10 == 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public void readComplete(final int rc, final LedgerHandle lh,
-                                 final Enumeration<LedgerEntry> seq, final Object ctx) {
+                                 final Enumeration<LedgerEntry> seq, final Object ctx,
+                                 final long startEntryId, final long endEntryId) {
             // submit callback execution to dlg executor to avoid deadlock.
             submit(new Runnable() {
                 @Override
                 public void run() {
-                    if (BKException.Code.OK != rc) {
+                    long numEntries = endEntryId - startEntryId + 1;
+
+                    // If readAheadSkipBrokenEntries is enabled and we hit a corrupt entry, log and
+                    // stat the issue and move forward.
+                    if (BKException.Code.DigestMatchException == rc && readAheadSkipBrokenEntries) {
+                        readAheadReadEntriesStat.registerFailedEvent(0);
+                        LOG.error("BK DigestMatchException while reading entries {}-{} in stream {}, entry {} discarded",
+                                new Object[] { startEntryId, endEntryId, fullyQualifiedName, startEntryId });
+                        bkcZkExceptions.set(0);
+                        bkcUnExpectedExceptions.set(0);
+                        readAheadSkippedBrokenEntries.inc();
+                        nextReadAheadPosition.advance();
+                    } else if (BKException.Code.OK != rc) {
                         readAheadReadEntriesStat.registerFailedEvent(0);
                         LOG.debug("BK Exception {} while reading entry", rc);
                         handleException(ReadAheadPhase.READ_ENTRIES, rc);
                         return;
-                    }
-                    int numReads = 0;
-                    while (seq.hasMoreElements()) {
-                        bkcZkExceptions.set(0);
-                        bkcUnExpectedExceptions.set(0);
-                        nextReadAheadPosition.advance();
-                        LedgerEntry e = seq.nextElement();
-                        LedgerReadPosition readPosition = new LedgerReadPosition(e.getLedgerId(), currentMetadata.getLogSegmentSequenceNumber(), e.getEntryId());
-                        readAheadCache.set(readPosition, e, null != ctx ? ctx.toString() : "",
-                                currentMetadata.getEnvelopeEntries(), currentMetadata.getStartSequenceId());
-                        ++numReads;
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Read entry {} of {}.", readPosition, fullyQualifiedName);
+                    } else {
+                        int numReads = 0;
+                        while (seq.hasMoreElements()) {
+                            bkcZkExceptions.set(0);
+                            bkcUnExpectedExceptions.set(0);
+                            nextReadAheadPosition.advance();
+                            LedgerEntry e = seq.nextElement();
+                            LedgerReadPosition readPosition = new LedgerReadPosition(e.getLedgerId(), currentMetadata.getLogSegmentSequenceNumber(), e.getEntryId());
+                            readAheadCache.set(readPosition, e, null != ctx ? ctx.toString() : "",
+                                    currentMetadata.getEnvelopeEntries(), currentMetadata.getStartSequenceId());
+                            ++numReads;
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Read entry {} of {}.", readPosition, fullyQualifiedName);
+                            }
                         }
+                        readAheadReadEntriesStat.registerSuccessfulEvent(numReads);
                     }
-                    readAheadReadEntriesStat.registerSuccessfulEvent(numReads);
                     if (readAheadCache.isCacheFull()) {
                         cacheFull = true;
                         complete();
@@ -1221,6 +1307,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
                 LOG.trace("Cache for {} is full. Backoff reading until notified", fullyQualifiedName);
                 readAheadCacheFullCounter.inc();
                 resumeStopWatch.reset().start();
+                stopPromise = null;
                 readAheadCache.setReadAheadCallback(ReadAheadWorker.this);
             } else {
                 run();
@@ -1235,6 +1322,10 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher {
 
     @Override
     public void run() {
+        if (!running) {
+            setReadAheadStopped();
+            return;
+        }
         readAheadPhase.process(BKException.Code.OK);
     }
 

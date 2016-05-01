@@ -24,8 +24,10 @@ import com.twitter.distributedlog.service.config.StreamConfigProvider;
 import com.twitter.distributedlog.service.stream.limiter.StreamRequestLimiter;
 import com.twitter.distributedlog.service.streamset.Partition;
 import com.twitter.distributedlog.stats.BroadCastStatsLogger;
-import com.twitter.distributedlog.util.ConfUtils;
+import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.TimeSequencer;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Function0;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -49,11 +51,11 @@ import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class StreamImpl extends Thread implements Stream {
+public class StreamImpl implements Stream {
     static final Logger logger = LoggerFactory.getLogger(StreamImpl.class);
 
     public static enum StreamStatus {
@@ -97,11 +99,10 @@ public class StreamImpl extends Thread implements Stream {
     private volatile String owner;
     private volatile Throwable lastException;
     private volatile boolean running = true;
-    private boolean suspended = false;
+    private volatile boolean suspended = false;
     private volatile Queue<StreamOp> pendingOps = new ArrayDeque<StreamOp>();
 
     private final Promise<Void> closePromise = new Promise<Void>();
-    private final Object streamLock = new Object();
     private final Object txnLock = new Object();
     private final TimeSequencer sequencer = new TimeSequencer();
     // last acquire time
@@ -109,12 +110,14 @@ public class StreamImpl extends Thread implements Stream {
     // last acquire failure time
     private final Stopwatch lastAcquireFailureWatch = Stopwatch.createUnstarted();
     private final long nextAcquireWaitTimeMs;
+    private ScheduledFuture<?> tryAcquireScheduledFuture = null;
+    private long scheduledAcquireDelayMs = 0L;
     private final StreamRequestLimiter limiter;
     private final DynamicDistributedLogConfiguration dynConf;
     private final DistributedLogConfiguration dlConfig;
     private final DistributedLogNamespace dlNamespace;
     private final String clientId;
-    private final ScheduledExecutorService executorService;
+    private final OrderedScheduler scheduler;
     private final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
     private final Feature featureRateLimitDisabled;
     private final StreamManager streamManager;
@@ -151,10 +154,9 @@ public class StreamImpl extends Thread implements Stream {
                FeatureProvider featureProvider,
                StreamConfigProvider streamConfigProvider,
                DistributedLogNamespace dlNamespace,
-               ScheduledExecutorService executorService,
+               OrderedScheduler scheduler,
                FatalErrorHandler fatalErrorHandler,
                HashedWheelTimer requestTimer) {
-        super("Stream-" + name);
         this.clientId = clientId;
         this.dlConfig = dlConfig;
         this.streamManager = streamManager;
@@ -167,7 +169,7 @@ public class StreamImpl extends Thread implements Stream {
         this.dlNamespace = dlNamespace;
         this.featureRateLimitDisabled = featureProvider.getFeature(
             ServerFeatureKeys.SERVICE_RATE_LIMIT_DISABLED.name().toLowerCase());
-        this.executorService = executorService;
+        this.scheduler = scheduler;
         this.serviceTimeoutMs = serverConfig.getServiceTimeoutMs();
         this.streamProbationTimeoutMs = serverConfig.getStreamProbationTimeoutMs();
         this.failFastOnStreamNotReady = dlConfig.getFailFastOnStreamNotReady();
@@ -189,8 +191,6 @@ public class StreamImpl extends Thread implements Stream {
         this.pendingOpsCounter = streamOpStats.baseCounter("pending_ops");
         this.unexpectedExceptions = streamOpStats.baseCounter("unexpected_exceptions");
         this.exceptionStatLogger = streamOpStats.requestScope("exceptions");
-
-        setDaemon(true);
     }
 
     @Override
@@ -246,88 +246,114 @@ public class StreamImpl extends Thread implements Stream {
         return String.format("Stream:%s, %s, %s Status:%s", name, manager, writer, status);
     }
 
-    @Override
-    public void run() {
-        try {
-            boolean shouldClose = false;
-            String closeReason = "";
-            while (running) {
-                synchronized (streamLock) {
-                    while (suspended && running) {
-                        try {
-                            streamLock.wait();
-                        } catch (InterruptedException ie) {
-                            // interrupted on waiting
-                        }
+    // schedule stream acquistion
+    private void tryAcquireStreamOnce() {
+        if (!running) {
+            return;
+        }
+
+        boolean needAcquire = false;
+        boolean checkNextTime = false;
+        synchronized (this) {
+            switch (this.status) {
+            case INITIALIZING:
+                streamManager.notifyReleased(this);
+                needAcquire = true;
+                break;
+            case FAILED:
+                this.status = StreamStatus.INITIALIZING;
+                streamManager.notifyReleased(this);
+                needAcquire = true;
+                break;
+            case BACKOFF:
+                // We may end up here after timeout on streamLock. To avoid acquire on every timeout
+                // we should only try again if a write has been attempted since the last acquire
+                // attempt. If we end up here because the request handler woke us up, the flag will
+                // be set and we will try to acquire as intended.
+                if (writeSinceLastAcquire) {
+                    this.status = StreamStatus.INITIALIZING;
+                    streamManager.notifyReleased(this);
+                    needAcquire = true;
+                } else {
+                    checkNextTime = true;
+                }
+                break;
+            default:
+                break;
+            }
+        }
+        if (needAcquire) {
+            lastAcquireWatch.reset().start();
+            acquireStream().addEventListener(new FutureEventListener<Boolean>() {
+                @Override
+                public void onSuccess(Boolean success) {
+                    synchronized (StreamImpl.this) {
+                        scheduledAcquireDelayMs = 0L;
+                        tryAcquireScheduledFuture = null;
+                    }
+                    if (!success) {
+                        // schedule acquire in nextAcquireWaitTimeMs
+                        scheduleTryAcquireOnce(nextAcquireWaitTimeMs);
                     }
                 }
 
-                if (!running) {
-                    break;
+                @Override
+                public void onFailure(Throwable cause) {
+                    // unhandled exceptions
+                    logger.error("Stream {} threw unhandled exception : ", name, cause);
+                    setStreamInErrorStatus();
+                    requestClose("Unhandled exception");
                 }
-
-                boolean needAcquire = false;
-                synchronized (this) {
-                    switch (this.status) {
-                    case INITIALIZING:
-                        streamManager.notifyReleased(this);
-                        needAcquire = true;
-                        break;
-                    case FAILED:
-                        this.status = StreamStatus.INITIALIZING;
-                        streamManager.notifyReleased(this);
-                        needAcquire = true;
-                        break;
-                    case BACKOFF:
-                        // We may end up here after timeout on streamLock. To avoid acquire on every timeout
-                        // we should only try again if a write has been attempted since the last acquire
-                        // attempt. If we end up here because the request handler woke us up, the flag will
-                        // be set and we will try to acquire as intended.
-                        if (writeSinceLastAcquire) {
-                            this.status = StreamStatus.INITIALIZING;
-                            streamManager.notifyReleased(this);
-                            needAcquire = true;
-                        }
-                        break;
-                    default:
-                        break;
-                    }
-                }
-                if (needAcquire) {
-                    lastAcquireWatch.reset().start();
-                    acquireStream();
-                } else if (StreamStatus.isUnavailable(status)) {
-                    // if the stream is unavailable, stop the thread and close the stream
-                    shouldClose = true;
-                    closeReason = "Stream is unavailable anymore";
-                    break;
-                } else if (StreamStatus.INITIALIZED != status && lastAcquireWatch.elapsed(TimeUnit.HOURS) > 2) {
-                    // if the stream isn't in initialized state and no writes coming in, then close the stream
-                    shouldClose = true;
-                    closeReason = "Stream not used anymore";
-                    break;
-                }
-                try {
-                    synchronized (streamLock) {
-                        streamLock.wait(nextAcquireWaitTimeMs);
-                    }
-                } catch (InterruptedException e) {
-                    // interrupted
-                }
+            });
+        } else if (StreamStatus.isUnavailable(status)) {
+            // if the stream is unavailable, stop the thread and close the stream
+            requestClose("Stream is unavailable anymore");
+        } else if (StreamStatus.INITIALIZED != status && lastAcquireWatch.elapsed(TimeUnit.HOURS) > 2) {
+            // if the stream isn't in initialized state and no writes coming in, then close the stream
+            requestClose("Stream not used anymore");
+        } else if (checkNextTime) {
+            synchronized (StreamImpl.this) {
+                scheduledAcquireDelayMs = 0L;
+                tryAcquireScheduledFuture = null;
             }
-            if (shouldClose) {
-                requestClose(closeReason);
-            }
-        } catch (Exception ex) {
-            logger.error("Stream thread {} threw unhandled exception : ", name, ex);
-            setStreamInErrorStatus();
-            requestClose("Unhandled exception");
+            // schedule acquire in nextAcquireWaitTimeMs
+            scheduleTryAcquireOnce(nextAcquireWaitTimeMs);
         }
     }
 
-    java.util.concurrent.Future<?> schedule(Runnable runnable, long delayMs) {
+    private synchronized void scheduleTryAcquireOnce(long delayMs) {
+        if (null != tryAcquireScheduledFuture) {
+            if (delayMs <= 0) {
+                if (scheduledAcquireDelayMs <= 0L ||
+                        (scheduledAcquireDelayMs > 0L
+                                && !tryAcquireScheduledFuture.cancel(false))) {
+                    return;
+                }
+                // if the scheduled one could be cancelled, re-submit one
+            } else {
+                return;
+            }
+        }
+        tryAcquireScheduledFuture = schedule(new Runnable() {
+            @Override
+            public void run() {
+                tryAcquireStreamOnce();
+            }
+        }, delayMs);
+        scheduledAcquireDelayMs = delayMs;
+    }
+
+    @Override
+    public void start() {
+        scheduleTryAcquireOnce(0);
+    }
+
+    ScheduledFuture<?> schedule(Runnable runnable, long delayMs) {
+        if (!running) {
+            return null;
+        }
         try {
-            return executorService.schedule(runnable, delayMs, TimeUnit.MILLISECONDS);
+            return scheduler.schedule(name, runnable, delayMs, TimeUnit.MILLISECONDS);
         } catch (RejectedExecutionException ree) {
             logger.error("Failed to schedule task {} in {} ms : ",
                     new Object[] { runnable, delayMs, ree });
@@ -445,17 +471,11 @@ public class StreamImpl extends Thread implements Stream {
                 }
             }
         }
-        if (notifyAcquireThread) {
-            notifyStreamLockWaiters();
+        if (notifyAcquireThread && !suspended) {
+            scheduleTryAcquireOnce(0L);
         }
         if (completeOpNow) {
             executeOp(op, success);
-        }
-    }
-
-    void notifyStreamLockWaiters() {
-        synchronized (streamLock) {
-            streamLock.notifyAll();
         }
     }
 
@@ -561,8 +581,9 @@ public class StreamImpl extends Thread implements Stream {
             }
         }
         if (statusChanged) {
-            abort(oldWriter);
+            Abortables.asyncAbort(oldWriter, false);
             logger.error("Failed to write data into stream {} : ", name, cause);
+            scheduleTryAcquireOnce(0L);
         }
         op.fail(cause);
     }
@@ -586,8 +607,9 @@ public class StreamImpl extends Thread implements Stream {
             }
         }
         if (statusChanged) {
-            abort(oldWriter);
+            Abortables.asyncAbort(oldWriter, false);
             logger.error("Failed to write data into stream {} : ", name, cause);
+            scheduleTryAcquireOnce(0L);
         }
         op.fail(cause);
     }
@@ -614,7 +636,8 @@ public class StreamImpl extends Thread implements Stream {
             }
         }
         if (statusChanged) {
-            abort(oldWriter);
+            Abortables.asyncAbort(oldWriter, false);
+            scheduleTryAcquireOnce(nextAcquireWaitTimeMs);
         }
         op.fail(oafe);
     }
@@ -642,93 +665,113 @@ public class StreamImpl extends Thread implements Stream {
         streamExceptionLogger.getCounter(exceptionName).inc();
     }
 
-    void acquireStream() {
+    Future<Boolean> acquireStream() {
         // Reset this flag so the acquire thread knows whether re-acquire is needed.
         writeSinceLastAcquire = false;
 
-        Queue<StreamOp> oldPendingOps;
-        boolean success;
-        InvalidStreamNameException exceptionToThrow = null;
-        Stopwatch stopwatch = Stopwatch.createStarted();
-        AsyncLogWriter oldWriter = null;
-        try {
-            AsyncLogWriter w = manager.startAsyncLogSegmentNonPartitioned();
-            synchronized (txnLock) {
-                sequencer.setLastId(w.getLastTxId());
-            }
-            synchronized (this) {
-                oldWriter = setStreamStatus(StreamStatus.INITIALIZED,
-                        StreamStatus.INITIALIZING, w, null, null);
-                oldPendingOps = pendingOps;
-                pendingOps = new ArrayDeque<StreamOp>();
-                success = true;
-            }
-            // check if the stream is allowed to be acquired
-            if (!streamManager.allowAcquire(this)) {
-                if (null != oldWriter) {
-                    Abortables.abortQuietly(oldWriter);
+        final Stopwatch stopwatch = Stopwatch.createStarted();
+        final Promise<Boolean> acquirePromise = new Promise<Boolean>();
+        manager.openAsyncLogWriter().addEventListener(FutureUtils.OrderedFutureEventListener.of(new FutureEventListener<AsyncLogWriter>() {
+
+            @Override
+            public void onSuccess(AsyncLogWriter w) {
+                synchronized (txnLock) {
+                    sequencer.setLastId(w.getLastTxId());
                 }
-                int maxAcquiredPartitions = dynConf.getMaxAcquiredPartitionsPerProxy();
-                StreamUnavailableException sue = new StreamUnavailableException("Stream " + partition.getStream()
-                        + " is not allowed to acquire more than " + maxAcquiredPartitions + " partitions");
-                countException(sue, exceptionStatLogger);
-                logger.error("Failed to acquire stream {} because it is unavailable : {}",
-                        name, sue.getMessage());
-                synchronized (this) {
-                    oldWriter = setStreamStatus(StreamStatus.ERROR,
-                            StreamStatus.INITIALIZED, null, null, sue);
-                    // we don't switch the pending ops since they are already switched
-                    // when setting the status to initialized
-                    success = false;
+                AsyncLogWriter oldWriter;
+                Queue<StreamOp> oldPendingOps;
+                boolean success;
+                synchronized (StreamImpl.this) {
+                    oldWriter = setStreamStatus(StreamStatus.INITIALIZED,
+                            StreamStatus.INITIALIZING, w, null, null);
+                    oldPendingOps = pendingOps;
+                    pendingOps = new ArrayDeque<StreamOp>();
+                    success = true;
                 }
+                // check if the stream is allowed to be acquired
+                if (!streamManager.allowAcquire(StreamImpl.this)) {
+                    if (null != oldWriter) {
+                        Abortables.asyncAbort(oldWriter, true);
+                    }
+                    int maxAcquiredPartitions = dynConf.getMaxAcquiredPartitionsPerProxy();
+                    StreamUnavailableException sue = new StreamUnavailableException("Stream " + partition.getStream()
+                            + " is not allowed to acquire more than " + maxAcquiredPartitions + " partitions");
+                    countException(sue, exceptionStatLogger);
+                    logger.error("Failed to acquire stream {} because it is unavailable : {}",
+                            name, sue.getMessage());
+                    synchronized (this) {
+                        oldWriter = setStreamStatus(StreamStatus.ERROR,
+                                StreamStatus.INITIALIZED, null, null, sue);
+                        // we don't switch the pending ops since they are already switched
+                        // when setting the status to initialized
+                        success = false;
+                    }
+                }
+                processPendingRequestsAfterOpen(success, oldWriter, oldPendingOps);
             }
-        } catch (final AlreadyClosedException ace) {
-            countException(ace, streamExceptionStatLogger);
-            handleAlreadyClosedException(ace);
-            return;
-        } catch (final OwnershipAcquireFailedException oafe) {
-            logger.warn("Failed to acquire stream ownership for {}, current owner is {} : {}",
-                    new Object[]{name, oafe.getCurrentOwner(), oafe.getMessage()});
-            synchronized (this) {
-                oldWriter = setStreamStatus(StreamStatus.BACKOFF,
-                        StreamStatus.INITIALIZING, null, oafe.getCurrentOwner(), oafe);
-                oldPendingOps = pendingOps;
-                pendingOps = new ArrayDeque<StreamOp>();
-                success = false;
+
+            @Override
+            public void onFailure(Throwable cause) {
+                AsyncLogWriter oldWriter;
+                Queue<StreamOp> oldPendingOps;
+                boolean success;
+                if (cause instanceof AlreadyClosedException) {
+                    countException(cause, streamExceptionStatLogger);
+                    handleAlreadyClosedException((AlreadyClosedException) cause);
+                    return;
+                } else if (cause instanceof OwnershipAcquireFailedException) {
+                    OwnershipAcquireFailedException oafe = (OwnershipAcquireFailedException) cause;
+                    logger.warn("Failed to acquire stream ownership for {}, current owner is {} : {}",
+                            new Object[]{name, oafe.getCurrentOwner(), oafe.getMessage()});
+                    synchronized (StreamImpl.this) {
+                        oldWriter = setStreamStatus(StreamStatus.BACKOFF,
+                                StreamStatus.INITIALIZING, null, oafe.getCurrentOwner(), oafe);
+                        oldPendingOps = pendingOps;
+                        pendingOps = new ArrayDeque<StreamOp>();
+                        success = false;
+                    }
+                } else if (cause instanceof InvalidStreamNameException) {
+                    InvalidStreamNameException isne = (InvalidStreamNameException) cause;
+                    countException(isne, streamExceptionStatLogger);
+                    logger.error("Failed to acquire stream {} due to its name is invalid", name);
+                    synchronized (StreamImpl.this) {
+                        oldWriter = setStreamStatus(StreamStatus.ERROR,
+                                StreamStatus.INITIALIZING, null, null, isne);
+                        oldPendingOps = pendingOps;
+                        pendingOps = new ArrayDeque<StreamOp>();
+                        success = false;
+                    }
+                } else {
+                    countException(cause, streamExceptionStatLogger);
+                    logger.error("Failed to initialize stream {} : ", name, cause);
+                    synchronized (StreamImpl.this) {
+                        oldWriter = setStreamStatus(StreamStatus.FAILED,
+                                StreamStatus.INITIALIZING, null, null, cause);
+                        oldPendingOps = pendingOps;
+                        pendingOps = new ArrayDeque<StreamOp>();
+                        success = false;
+                    }
+                }
+                processPendingRequestsAfterOpen(success, oldWriter, oldPendingOps);
             }
-        } catch (final InvalidStreamNameException isne) {
-            countException(isne, streamExceptionStatLogger);
-            logger.error("Failed to acquire stream {} due to its name is invalid", name);
-            synchronized (this) {
-                oldWriter = setStreamStatus(StreamStatus.ERROR,
-                        StreamStatus.INITIALIZING, null, null, isne);
-                oldPendingOps = pendingOps;
-                pendingOps = new ArrayDeque<StreamOp>();
-                success = false;
+
+            void processPendingRequestsAfterOpen(boolean success,
+                                                 AsyncLogWriter oldWriter,
+                                                 Queue<StreamOp> oldPendingOps) {
+                if (success) {
+                    streamAcquireStat.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
+                } else {
+                    streamAcquireStat.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
+                }
+                for (StreamOp op : oldPendingOps) {
+                    executeOp(op, success);
+                    pendingOpsCounter.dec();
+                }
+                Abortables.asyncAbort(oldWriter, true);
+                FutureUtils.setValue(acquirePromise, success);
             }
-        } catch (final IOException ioe) {
-            countException(ioe, streamExceptionStatLogger);
-            logger.error("Failed to initialize stream {} : ", name, ioe);
-            synchronized (this) {
-                oldWriter = setStreamStatus(StreamStatus.FAILED,
-                        StreamStatus.INITIALIZING, null, null, ioe);
-                oldPendingOps = pendingOps;
-                pendingOps = new ArrayDeque<StreamOp>();
-                success = false;
-            }
-        }
-        if (success) {
-            streamAcquireStat.registerSuccessfulEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-        } else {
-            streamAcquireStat.registerFailedEvent(stopwatch.elapsed(TimeUnit.MICROSECONDS));
-        }
-        for (StreamOp op : oldPendingOps) {
-            executeOp(op, success);
-            pendingOpsCounter.dec();
-        }
-        if (null != oldWriter) {
-            Abortables.abortQuietly(oldWriter);
-        }
+        }, scheduler, getStreamName()));
+        return acquirePromise;
     }
 
     synchronized void setStreamInErrorStatus() {
@@ -804,26 +847,6 @@ public class StreamImpl extends Thread implements Stream {
         }
     }
 
-    void close(AsyncLogWriter writer) {
-        if (null != writer) {
-            try {
-                writer.close();
-            } catch (IOException ioe) {
-                logger.warn("Failed to close async log writer for {} : ", ioe);
-            }
-        }
-    }
-
-    void abort(AsyncLogWriter writer) {
-        if (null != writer) {
-            try {
-                writer.abort();
-            } catch (IOException e) {
-                logger.warn("Failed to abort async log writer for {} : ", e);
-            }
-        }
-    }
-
     @Override
     public Future<Void> requestClose(String reason) {
         return requestClose(reason, true);
@@ -837,7 +860,7 @@ public class StreamImpl extends Thread implements Stream {
                 StreamStatus.CLOSED == status) {
                 return closePromise;
             }
-            logger.info("Request to close stream {} : {}", getName(), reason);
+            logger.info("Request to close stream {} : {}", getStreamName(), reason);
             // if the stream isn't closed from INITIALIZED state, we abort the stream instead of closing it.
             abort = StreamStatus.INITIALIZED != status;
             status = StreamStatus.CLOSING;
@@ -848,19 +871,7 @@ public class StreamImpl extends Thread implements Stream {
         // we will fail the requests that are coming in between closing and closed only
         // after the async writer is closed. so we could clear up the lock before redirect
         // them.
-        try {
-            executorService.submit(new Runnable() {
-                @Override
-                public void run() {
-                    close(abort);
-                    closePromise.setValue(null);
-                }
-            });
-        } catch (RejectedExecutionException ree) {
-            logger.warn("Failed to schedule closing stream {}, close it directly : ", name, ree);
-            close(abort);
-            closePromise.setValue(null);
-        }
+        close(abort);
         if (uncache) {
             closePromise.onSuccess(new AbstractFunction1<Void, BoxedUnit>() {
                 @Override
@@ -878,7 +889,7 @@ public class StreamImpl extends Thread implements Stream {
     @Override
     public void delete() throws IOException {
         if (null != writer) {
-            writer.close();
+            Utils.close(writer);
             synchronized (this) {
                 writer = null;
                 lastException = new StreamUnavailableException("Stream was deleted");
@@ -895,12 +906,12 @@ public class StreamImpl extends Thread implements Stream {
      *
      * @param shouldAbort shall we abort the stream instead of closing
      */
-    private void close(boolean shouldAbort) {
+    private Future<Void> close(boolean shouldAbort) {
         boolean abort;
         closeLock.writeLock().lock();
         try {
             if (StreamStatus.CLOSED == status) {
-                return;
+                return closePromise;
             }
             abort = shouldAbort || (StreamStatus.INITIALIZED != status && StreamStatus.CLOSING != status);
             status = StreamStatus.CLOSED;
@@ -911,19 +922,37 @@ public class StreamImpl extends Thread implements Stream {
         logger.info("Closing stream {} ...", name);
         running = false;
         // stop any outstanding ownership acquire actions first
-        interrupt();
-        try {
-            join();
-        } catch (InterruptedException e) {
-            logger.error("Interrupted on closing stream {} : ", name, e);
+        synchronized (this) {
+            if (null != tryAcquireScheduledFuture) {
+                tryAcquireScheduledFuture.cancel(true);
+            }
         }
         logger.info("Stopped threads of stream {}.", name);
         // Close the writers to release the locks before failing the requests
+        Future<Void> closeWriterFuture;
         if (abort) {
-            abort(writer);
+            closeWriterFuture = Abortables.asyncAbort(writer, true);
         } else {
-            close(writer);
+            closeWriterFuture = Utils.asyncClose(writer, true);
         }
+        // close the manager and error out pending requests after close writer
+        closeWriterFuture.addEventListener(FutureUtils.OrderedFutureEventListener.of(
+                new FutureEventListener<Void>() {
+                    @Override
+                    public void onSuccess(Void value) {
+                        closeManagerAndErrorOutPendingRequests();
+                        FutureUtils.setValue(closePromise, null);
+                    }
+                    @Override
+                    public void onFailure(Throwable cause) {
+                        closeManagerAndErrorOutPendingRequests();
+                        FutureUtils.setValue(closePromise, null);
+                    }
+                }, scheduler, name));
+        return closePromise;
+    }
+
+    private void closeManagerAndErrorOutPendingRequests() {
         close(manager);
         // Failed the pending requests.
         Queue<StreamOp> oldPendingOps;
@@ -945,18 +974,14 @@ public class StreamImpl extends Thread implements Stream {
 
     @VisibleForTesting
     public StreamImpl suspendAcquiring() {
-        synchronized (streamLock) {
-            suspended = true;
-        }
+        suspended = true;
         return this;
     }
 
     @VisibleForTesting
     public StreamImpl resumeAcquiring() {
-        synchronized (streamLock) {
-            suspended = false;
-            streamLock.notifyAll();
-        }
+        suspended = false;
+        scheduleTryAcquireOnce(0L);
         return this;
     }
 
@@ -989,5 +1014,10 @@ public class StreamImpl extends Thread implements Stream {
     @VisibleForTesting
     public Throwable getLastException() {
         return lastException;
+    }
+
+    @VisibleForTesting
+    public Future<Void> getCloseFuture() {
+        return closePromise;
     }
 }

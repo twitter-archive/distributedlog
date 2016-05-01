@@ -9,10 +9,12 @@ Documentation
    basics/main
    api/main
    configuration/main
+   considerations/main
+   architecture/main
    design/main
+   globalreplicatedlog/main
    implementation/main
    operations/main
-   globalreplicatedlog/main
    performance/main
    references/main
    runbook/main

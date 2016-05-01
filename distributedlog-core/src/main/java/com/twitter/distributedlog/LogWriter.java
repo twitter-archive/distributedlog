@@ -34,6 +34,8 @@ public interface LogWriter extends Closeable, Abortable {
      * persistent storage.
      * The transmission is asynchronous and new data can be still written to the
      * stream while flushing is performed.
+     *
+     * TODO: rename this to flush()
      */
     public long setReadyToFlush() throws IOException;
 
@@ -41,6 +43,8 @@ public interface LogWriter extends Closeable, Abortable {
      * Flush and sync all data that is ready to be flush
      * {@link #setReadyToFlush()} into underlying persistent store.
      * @throws IOException
+     *
+     * TODO: rename this to commit()
      */
     public long flushAndSync() throws IOException;
 

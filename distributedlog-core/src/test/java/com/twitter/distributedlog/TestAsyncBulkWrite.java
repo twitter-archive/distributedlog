@@ -4,6 +4,7 @@ import com.twitter.distributedlog.exceptions.LogRecordTooLongException;
 import com.twitter.distributedlog.exceptions.WriteCancelledException;
 import com.twitter.distributedlog.exceptions.WriteException;
 import com.twitter.distributedlog.util.FailpointUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -19,8 +20,8 @@ import java.util.List;
 
 import static com.twitter.distributedlog.DLMTestUtil.validateFutureFailed;
 import static com.twitter.distributedlog.DLMTestUtil.validateFutureSucceededAndGetResult;
-import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORD_SIZE;
-import static com.twitter.distributedlog.LogRecordSet.MAX_LOGRECORDSET_SIZE;
+import static com.twitter.distributedlog.LogRecord.MAX_LOGRECORD_SIZE;
+import static com.twitter.distributedlog.LogRecord.MAX_LOGRECORDSET_SIZE;
 import static org.junit.Assert.*;
 
 /**

@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.UnexpectedException;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -35,7 +36,7 @@ public class AppendOnlyStreamWriter implements Closeable {
     public void force(boolean metadata) throws IOException {
         long pos = 0;
         try {
-            pos = Await.result(logWriter.flushAndSyncAll()).longValue();
+            pos = Await.result(logWriter.flushAndCommit());
         } catch (IOException ioe) {
             throw ioe;
         } catch (Exception ex) {

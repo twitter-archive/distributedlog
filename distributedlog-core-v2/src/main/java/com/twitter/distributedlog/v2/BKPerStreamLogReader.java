@@ -382,11 +382,11 @@ class BKPerStreamLogReader {
         }
 
         @Override
-        public void advanceToNextRecord() {
+        public void advance(int numRecords) {
             if (null == readPosition) {
                 return;
             }
-            currentSlotId++;
+            currentSlotId += numRecords;
         }
 
         @Override

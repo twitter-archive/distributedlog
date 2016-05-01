@@ -25,6 +25,7 @@ import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
 import com.twitter.util.Future;
@@ -126,7 +127,7 @@ public class DLMTestUtil {
         public void close() {
             bookKeeperClient.close();
             zooKeeperClient.close();
-            writeHandler.close();
+            Utils.closeQuietly(writeHandler);
         }
 
         public BKLogWriteHandler getWriteHandler() {
@@ -134,8 +135,7 @@ public class DLMTestUtil {
         }
     }
 
-    static BKLogPartitionWriteHandlerAndClients createNewBKDLM(String logIdentifier,
-                                                               DistributedLogConfiguration conf,
+    static BKLogPartitionWriteHandlerAndClients createNewBKDLM(DistributedLogConfiguration conf,
                                                                String logName,
                                                                int zkPort) throws Exception {
         URI uri = createDLMURI(zkPort, "/" + logName);
@@ -181,14 +181,14 @@ public class DLMTestUtil {
                 PermitLimiter.NULL_PERMIT_LIMITER,
                 NullStatsLogger.INSTANCE);
 
-        BKLogWriteHandler writeHandler = bkdlm.createWriteLedgerHandler(logIdentifier, true);
+        BKLogWriteHandler writeHandler = bkdlm.createWriteHandler(true);
         return new BKLogPartitionWriteHandlerAndClients(writeHandler, zkClient, bkcBuilder.build());
     }
 
     public static void fenceStream(DistributedLogConfiguration conf, URI uri, String name) throws Exception {
         BKDistributedLogManager dlm = (BKDistributedLogManager) createNewDLM(name, conf, uri);
         try {
-            BKLogReadHandler readHandler = dlm.createReadLedgerHandler(conf.getUnpartitionedStreamName());
+            BKLogReadHandler readHandler = dlm.createReadHandler();
             List<LogSegmentMetadata> ledgerList = readHandler.getFullLedgerList(true, true);
             LogSegmentMetadata lastSegment = ledgerList.get(ledgerList.size() - 1);
             BookKeeperClient bkc = dlm.getWriterBKC();
@@ -402,7 +402,7 @@ public class DLMTestUtil {
             Await.result(out.write(record));
             txid += txidStep;
         }
-        out.close();
+        Utils.close(out);
         return txid - startTxid;
     }
 
@@ -411,7 +411,7 @@ public class DLMTestUtil {
                                                                 boolean completeLogSegment)
             throws Exception {
         BKDistributedLogManager dlm = (BKDistributedLogManager) manager;
-        BKLogWriteHandler writeHandler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
+        BKLogWriteHandler writeHandler = dlm.createWriteHandler(false);
         FutureUtils.result(writeHandler.lockHandler());
         // Start a log segment with a given ledger seq number.
         BookKeeperClient bkc = dlm.getWriterBKC();
@@ -437,7 +437,6 @@ public class DLMTestUtil {
                 startTxID,
                 logSegmentSeqNo,
                 writeHandler.scheduler,
-                writeHandler.orderedFuturePool,
                 writeHandler.statsLogger,
                 writeHandler.statsLogger,
                 writeHandler.alertStatsLogger,
@@ -449,11 +448,10 @@ public class DLMTestUtil {
             for (long j = 1; j <= segmentSize; j++) {
                 writer.write(DLMTestUtil.getLogRecordInstance(txid++));
             }
-            writer.setReadyToFlush();
-            writer.flushAndSync();
+            FutureUtils.result(writer.flushAndCommit());
         }
         if (completeLogSegment) {
-            writeHandler.completeAndCloseLogSegment(writer);
+            FutureUtils.result(writeHandler.completeAndCloseLogSegment(writer));
         }
         FutureUtils.result(writeHandler.unlockHandler());
     }
@@ -462,7 +460,7 @@ public class DLMTestUtil {
                                                     long logSegmentSeqNo, long startTxID, long segmentSize,
                                                     boolean recordWrongLastDLSN) throws Exception {
         BKDistributedLogManager dlm = (BKDistributedLogManager) manager;
-        BKLogWriteHandler writeHandler = dlm.createWriteLedgerHandler(conf.getUnpartitionedStreamName(), false);
+        BKLogWriteHandler writeHandler = dlm.createWriteHandler(false);
         FutureUtils.result(writeHandler.lockHandler());
         // Start a log segment with a given ledger seq number.
         BookKeeperClient bkc = dlm.getReaderBKC();
@@ -489,7 +487,6 @@ public class DLMTestUtil {
                 startTxID,
                 logSegmentSeqNo,
                 writeHandler.scheduler,
-                writeHandler.orderedFuturePool,
                 writeHandler.statsLogger,
                 writeHandler.statsLogger,
                 writeHandler.alertStatsLogger,
@@ -506,7 +503,7 @@ public class DLMTestUtil {
         }
         assertNotNull(wrongDLSN);
         if (recordWrongLastDLSN) {
-            writer.close();
+            FutureUtils.result(writer.asyncClose());
             writeHandler.completeAndCloseLogSegment(
                     writeHandler.inprogressZNodeName(writer.getLogSegmentId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
                     writer.getLogSegmentSequenceNumber(),
@@ -517,7 +514,7 @@ public class DLMTestUtil {
                     wrongDLSN.getEntryId(),
                     wrongDLSN.getSlotId());
         } else {
-            writeHandler.completeAndCloseLogSegment(writer);
+            FutureUtils.result(writeHandler.completeAndCloseLogSegment(writer));
         }
         FutureUtils.result(writeHandler.unlockHandler());
     }
@@ -544,7 +541,7 @@ public class DLMTestUtil {
 
     public static <T> void validateFutureFailed(Future<T> future, Class exClass) {
         try {
-            Await.result(future, Duration.fromSeconds(10));
+            Await.result(future);
         } catch (Exception ex) {
             LOG.info("Expected: {} Actual: {}", exClass.getName(), ex.getClass().getName());
             assertTrue("exceptions types equal", exClass.isInstance(ex));

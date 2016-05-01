@@ -172,7 +172,7 @@ public class LogSegmentMetadata {
         }
 
         public LogSegmentMetadataBuilder setRecordCount(LogRecord record) {
-            this.recordCount = record.getPositionWithinLogSegment();
+            this.recordCount = record.getLastPositionWithinLogSegment();
             return this;
         }
 
@@ -547,12 +547,12 @@ public class LogSegmentMetadata {
 
     @VisibleForTesting
     public boolean isRecordPositionWithinSegmentScope(LogRecord record) {
-        return record.getPositionWithinLogSegment() <= getRecordCount();
+        return record.getLastPositionWithinLogSegment() <= getRecordCount();
     }
 
     @VisibleForTesting
     public boolean isRecordLastPositioninThisSegment(LogRecord record) {
-        return record.getPositionWithinLogSegment() == getRecordCount();
+        return record.getLastPositionWithinLogSegment() == getRecordCount();
     }
 
     /**

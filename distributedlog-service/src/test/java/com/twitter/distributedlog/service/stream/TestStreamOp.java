@@ -53,6 +53,7 @@ public class TestStreamOp {
             new ServerConfiguration(),
             (byte)0,
             null,
+            false,
             disabledFeature,
             DefaultAccessControlManager.INSTANCE);
     }

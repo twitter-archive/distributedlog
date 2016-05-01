@@ -9,6 +9,7 @@ import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.benchmark.utils.ShiftableRateLimiter;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.SchedulerUtils;
 import com.twitter.util.FutureEventListener;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -96,7 +97,7 @@ public class DLWriterWorker implements Worker {
                     try {
                         AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
                         if (null != writers.putIfAbsent(streamName, writer)) {
-                            writer.close();
+                            FutureUtils.result(writer.asyncClose());
                         }
                         latch.countDown();
                     } catch (IOException e) {
@@ -126,7 +127,7 @@ public class DLWriterWorker implements Worker {
     void rescueWriter(int idx, AsyncLogWriter writer) {
         if (streamWriters.get(idx) == writer) {
             try {
-                writer.close();
+                FutureUtils.result(writer.asyncClose());
             } catch (IOException e) {
                 LOG.error("Failed to close writer for stream {}.", idx);
             }
@@ -164,7 +165,7 @@ public class DLWriterWorker implements Worker {
         SchedulerUtils.shutdownScheduler(this.executorService, 2, TimeUnit.MINUTES);
         SchedulerUtils.shutdownScheduler(this.rescueService, 2, TimeUnit.MINUTES);
         for (AsyncLogWriter writer : streamWriters) {
-            writer.close();
+            FutureUtils.result(writer.asyncClose());
         }
         for (DistributedLogManager dlm : dlms) {
             dlm.close();

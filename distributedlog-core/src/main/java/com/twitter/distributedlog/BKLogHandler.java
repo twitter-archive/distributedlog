@@ -25,12 +25,14 @@ import com.twitter.distributedlog.exceptions.MetadataException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
+import com.twitter.distributedlog.io.AsyncAbortable;
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.distributedlog.logsegment.LogSegmentCache;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.Utils;
-import com.twitter.util.Await;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
@@ -68,6 +70,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * The base class about log handler on managing log segments.
@@ -96,7 +99,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * @see {@link BKLogWriteHandler} for writers
  * @see {@link BKLogReadHandler} for readers
  */
-public abstract class BKLogHandler implements Watcher {
+public abstract class BKLogHandler implements Watcher, AsyncCloseable, AsyncAbortable {
     static final Logger LOG = LoggerFactory.getLogger(BKLogHandler.class);
 
     private static final int LAYOUT_VERSION = -1;
@@ -106,7 +109,6 @@ public abstract class BKLogHandler implements Watcher {
     protected final ZooKeeperClient zooKeeperClient;
     protected final BookKeeperClient bookKeeperClient;
     protected final LogSegmentMetadataStore metadataStore;
-    protected final String digestpw;
     protected final int firstNumEntriesPerReadLastRecordScan;
     protected final int maxNumEntriesPerReadLastRecordScan;
     protected volatile long lastLedgerRollingTimeMillis = -1;
@@ -117,6 +119,7 @@ public abstract class BKLogHandler implements Watcher {
     private final AtomicBoolean isFullListFetched = new AtomicBoolean(false);
     protected volatile boolean reportGetSegmentStats = false;
     private final String lockClientId;
+    protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
 
     // listener
     protected final CopyOnWriteArraySet<LogSegmentListener> listeners =
@@ -263,7 +266,6 @@ public abstract class BKLogHandler implements Watcher {
         this.filter = filter;
         this.logSegmentCache = new LogSegmentCache(metadata.getLogName());
 
-        digestpw = conf.getBKDigestPW();
         firstNumEntriesPerReadLastRecordScan = conf.getFirstNumEntriesPerReadLastRecordScan();
         maxNumEntriesPerReadLastRecordScan = conf.getMaxNumEntriesPerReadLastRecordScan();
         this.zooKeeperClient = zkcBuilder.build();
@@ -295,6 +297,13 @@ public abstract class BKLogHandler implements Watcher {
         negativeGetCompletedSegmentStat = segmentsLogger.getOpStatsLogger("negative_get_completed_segment");
         recoverLastEntryStats = segmentsLogger.getOpStatsLogger("recover_last_entry");
         recoverScannedEntriesStats = segmentsLogger.getOpStatsLogger("recover_scanned_entries");
+    }
+
+    BKLogHandler checkMetadataException() throws IOException {
+        if (null != metadataException.get()) {
+            throw metadataException.get();
+        }
+        return this;
     }
 
     public void reportGetSegmentStats(boolean enabled) {
@@ -503,7 +512,7 @@ public abstract class BKLogHandler implements Watcher {
             if (l.isInProgress()) {
                 LogRecord record = recoverLastRecordInLedger(l, false, false, false);
                 if (null != record) {
-                    count += record.getPositionWithinLogSegment();
+                    count += record.getLastPositionWithinLogSegment();
                 }
             } else {
                 count += l.getRecordCount();
@@ -543,7 +552,7 @@ public abstract class BKLogHandler implements Watcher {
             public Long apply(final LogRecordWithDLSN beginRecord) {
                 long recordCount = 0;
                 if (null != beginRecord) {
-                    recordCount = endPosition + 1 - beginRecord.getPositionWithinLogSegment();
+                    recordCount = endPosition + 1 - beginRecord.getLastPositionWithinLogSegment();
                 }
                 return recordCount;
             }
@@ -561,7 +570,7 @@ public abstract class BKLogHandler implements Watcher {
             return asyncReadLastUserRecord(ledger).flatMap(new Function<LogRecordWithDLSN, Future<Long>>() {
                 public Future<Long> apply(final LogRecordWithDLSN endRecord) {
                     if (null != endRecord) {
-                        return asyncGetLogRecordCount(ledger, beginDLSN, endRecord.getPositionWithinLogSegment() /* end position */);
+                        return asyncGetLogRecordCount(ledger, beginDLSN, endRecord.getLastPositionWithinLogSegment() /* end position */);
                     } else {
                         return Future.value((long) 0);
                     }
@@ -571,7 +580,7 @@ public abstract class BKLogHandler implements Watcher {
             return asyncReadLastUserRecord(ledger).map(new Function<LogRecordWithDLSN, Long>() {
                 public Long apply(final LogRecordWithDLSN endRecord) {
                     if (null != endRecord) {
-                        return (long) endRecord.getPositionWithinLogSegment();
+                        return (long) endRecord.getLastPositionWithinLogSegment();
                     } else {
                         return (long) 0;
                     }
@@ -690,9 +699,16 @@ public abstract class BKLogHandler implements Watcher {
         }
     }
 
-    public void close() {
+    @Override
+    public Future<Void> asyncClose() {
         // No-op
         this.zooKeeperClient.getWatcherManager().unregisterChildWatcher(logMetadata.getLogSegmentsPath(), this);
+        return Future.Void();
+    }
+
+    @Override
+    public Future<Void> asyncAbort() {
+        return asyncClose();
     }
 
     /**
@@ -719,15 +735,7 @@ public abstract class BKLogHandler implements Watcher {
                                                           boolean includeControl,
                                                           boolean includeEndOfStream)
         throws IOException {
-        try {
-            return Await.result(asyncReadLastRecord(l, fence, includeControl, includeEndOfStream));
-        } catch (Throwable t) {
-            if (t instanceof IOException) {
-                throw (IOException) t;
-            } else {
-                throw new IOException("Error on reading last record in ledger " + l + " for " + getFullyQualifiedName(), t);
-            }
-        }
+        return FutureUtils.result(asyncReadLastRecord(l, fence, includeControl, includeEndOfStream));
     }
 
     public Future<LogRecordWithDLSN> asyncReadLastUserRecord(final LogSegmentMetadata l) {
@@ -785,12 +793,20 @@ public abstract class BKLogHandler implements Watcher {
 
     // Ledgers Related Functions
     // ***Note***
-    // Get ledger list should go through #getCachedLedgerList as we need to assign start sequence id for inprogress log
+    // Get ledger list should go through #getCachedLogSegments as we need to assign start sequence id for inprogress log
     // segment so the reader could generate the right sequence id.
 
-    protected List<LogSegmentMetadata> getCachedLedgerList(Comparator<LogSegmentMetadata> comparator)
+    protected List<LogSegmentMetadata> getCachedLogSegments(Comparator<LogSegmentMetadata> comparator)
         throws UnexpectedException {
-        return logSegmentCache.getLogSegments(comparator);
+        try {
+            return logSegmentCache.getLogSegments(comparator);
+        } catch (UnexpectedException ue) {
+            // the log segments cache went wrong
+            LOG.error("Unexpected exception on getting log segments from the cache for stream {}",
+                    getFullyQualifiedName(), ue);
+            metadataException.compareAndSet(null, ue);
+            throw ue;
+        }
     }
 
     protected List<LogSegmentMetadata> getFullLedgerList(boolean forceFetch, boolean throwOnEmpty)
@@ -843,7 +859,7 @@ public abstract class BKLogHandler implements Watcher {
             if (forceFetch || !isFullListFetched.get()) {
                 return forceGetLedgerList(comparator, LogSegmentFilter.DEFAULT_FILTER, throwOnEmpty);
             } else {
-                return getCachedLedgerList(comparator);
+                return getCachedLogSegments(comparator);
             }
         } else {
             if (forceFetch) {
@@ -853,7 +869,7 @@ public abstract class BKLogHandler implements Watcher {
                     scheduleGetLedgersTask(true, true);
                 }
                 waitFirstGetLedgersTaskToFinish();
-                return getCachedLedgerList(comparator);
+                return getCachedLogSegments(comparator);
             }
         }
     }
@@ -955,7 +971,7 @@ public abstract class BKLogHandler implements Watcher {
                 return asyncForceGetLedgerList(comparator, LogSegmentFilter.DEFAULT_FILTER, throwOnEmpty);
             } else {
                 try {
-                    return Future.value(getCachedLedgerList(comparator));
+                    return Future.value(getCachedLogSegments(comparator));
                 } catch (UnexpectedException ue) {
                     return Future.exception(ue);
                 }
@@ -971,7 +987,7 @@ public abstract class BKLogHandler implements Watcher {
                     @Override
                     public void onSuccess(List<LogSegmentMetadata> value) {
                         try {
-                            promise.setValue(getCachedLedgerList(comparator));
+                            promise.setValue(getCachedLogSegments(comparator));
                         } catch (UnexpectedException e) {
                             promise.setException(e);
                         }
@@ -1179,7 +1195,7 @@ public abstract class BKLogHandler implements Watcher {
 
                         List<LogSegmentMetadata> segmentList;
                         try {
-                            segmentList = getCachedLedgerList(comparator);
+                            segmentList = getCachedLogSegments(comparator);
                         } catch (UnexpectedException e) {
                             callback.operationComplete(KeeperException.Code.DATAINCONSISTENCY.intValue(), null);
                             return;
@@ -1195,7 +1211,7 @@ public abstract class BKLogHandler implements Watcher {
                     final AtomicInteger numChildren = new AtomicInteger(segmentsAdded.size());
                     final AtomicInteger numFailures = new AtomicInteger(0);
                     for (final String segment: segmentsAdded) {
-                        LogSegmentMetadata.read(zooKeeperClient, logMetadata.getLogSegmentPath(segment))
+                        metadataStore.getLogSegment(logMetadata.getLogSegmentPath(segment))
                                 .addEventListener(new FutureEventListener<LogSegmentMetadata>() {
 
                                     @Override
@@ -1217,8 +1233,14 @@ public abstract class BKLogHandler implements Watcher {
                                         } else {
                                             // fail fast
                                             if (1 == numFailures.incrementAndGet()) {
+                                                int rcToReturn = KeeperException.Code.SYSTEMERROR.intValue();
+                                                if (cause instanceof KeeperException) {
+                                                    rcToReturn = ((KeeperException) cause).code().intValue();
+                                                } else if (cause instanceof ZKException) {
+                                                    rcToReturn = ((ZKException) cause).getKeeperExceptionCode().intValue();
+                                                }
                                                 // :( properly we need dlog related response code.
-                                                callback.operationComplete(rc, null);
+                                                callback.operationComplete(rcToReturn, null);
                                                 return;
                                             }
                                         }
@@ -1230,7 +1252,7 @@ public abstract class BKLogHandler implements Watcher {
                                             logSegmentCache.update(removedSegments, addedSegments);
                                             List<LogSegmentMetadata> segmentList;
                                             try {
-                                                segmentList = getCachedLedgerList(comparator);
+                                                segmentList = getCachedLogSegments(comparator);
                                             } catch (UnexpectedException e) {
                                                 callback.operationComplete(KeeperException.Code.DATAINCONSISTENCY.intValue(), null);
                                                 return;

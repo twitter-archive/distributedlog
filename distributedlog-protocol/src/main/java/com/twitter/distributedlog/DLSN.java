@@ -50,7 +50,7 @@ public class DLSN implements Comparable<DLSN> {
      *
      * @return sequence number of the log segment that the record is written to.
      */
-    long getLogSegmentSequenceNo() {
+    public long getLogSegmentSequenceNo() {
         return logSegmentSequenceNo;
     }
 
@@ -76,7 +76,7 @@ public class DLSN implements Comparable<DLSN> {
      *
      * @return slot id in the batch that the record is written to.
      */
-    long getSlotId() {
+    public long getSlotId() {
         return slotId;
     }
 

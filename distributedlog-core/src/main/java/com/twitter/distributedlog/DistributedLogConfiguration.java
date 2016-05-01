@@ -137,6 +137,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_BK_DNS_RESOLVER_OVERRIDES_DEFAULT = "";
 
     // General Settings
+    // @Deprecated
     public static final String BKDL_BOOKKEEPER_DIGEST_PW = "digestPw";
     public static final String BKDL_BOOKKEEPER_DIGEST_PW_DEFAULT = "";
     public static final String BKDL_BKCLIENT_NUM_IO_THREADS = "bkcNumIOThreads";
@@ -180,6 +181,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_OLD = "first-logsegment-sequence-number";
     public static final long BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_DEFAULT =
             DistributedLogConstants.FIRST_LOGSEGMENT_SEQNO;
+    public static final String BKDL_LOGSEGMENT_SEQUENCE_NUMBER_VALIDATION_ENABLED = "logSegmentSequenceNumberValidationEnabled";
+    public static final boolean BKDL_LOGSEGMENT_SEQUENCE_NUMBER_VALIDATION_ENABLED_DEFAULT = true;
     public static final String BKDL_ENABLE_RECORD_COUNTS = "enableRecordCounts";
     public static final boolean BKDL_ENABLE_RECORD_COUNTS_DEFAULT = true;
     public static final String BKDL_MAXID_SANITYCHECK = "maxIdSanityCheck";
@@ -282,6 +285,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_READLAC_OPTION_DEFAULT = 3; //BKLogPartitionReadHandler.ReadLACOption.READENTRYPIGGYBACK_SEQUENTIAL.value
     public static final String BKDL_READLACLONGPOLL_TIMEOUT = "readLACLongPollTimeout";
     public static final int BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT = 1000;
+    public static final String BKDL_DESERIALIZE_RECORDSET_ON_READS = "deserializeRecordSetOnReads";
+    public static final boolean BKDL_DESERIALIZE_RECORDSET_ON_READS_DEFAULT = true;
 
     // Idle reader settings
     public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
@@ -317,6 +322,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS =
             "readAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis";
     public static final int BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS_DEFAULT = 10000;
+    public static final String BKDL_READAHEAD_SKIP_BROKEN_ENTRIES = "readAheadSkipBrokenEntries";
+    public static final boolean BKDL_READAHEAD_SKIP_BROKEN_ENTRIES_DEFAULT = false;
 
     // Scan Settings
     public static final String BKDL_FIRST_NUM_ENTRIES_PER_READ_LAST_RECORD_SCAN = "firstNumEntriesEachPerLastRecordScan";
@@ -424,6 +431,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_EI_INJECT_MAX_READAHEAD_DELAY_MS_DEFAULT = 0;
     public static final String BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT = "eiInjectReadAheadDelayPercent";
     public static final int BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT_DEFAULT = 10;
+    public static final String BKDL_EI_INJECT_READAHEAD_BROKEN_ENTRIES = "eiInjectReadAheadBrokenEntries";
+    public static final boolean BKDL_EI_INJECT_READAHEAD_BROKEN_ENTRIES_DEFAULT = false;
 
     // Whitelisted stream-level configuration settings.
     private static final Set<String> streamSettings = Sets.newHashSet(
@@ -1429,6 +1438,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Whether log segment sequence number validation is enabled?
+     *
+     * @return true if the log segment sequence number validation is enabled, otherwise false.
+     */
+    public boolean isLogSegmentSequenceNumberValidationEnabled() {
+        return this.getBoolean(BKDL_LOGSEGMENT_SEQUENCE_NUMBER_VALIDATION_ENABLED,
+                BKDL_LOGSEGMENT_SEQUENCE_NUMBER_VALIDATION_ENABLED_DEFAULT);
+    }
+
+    /**
+     * Whether log segment sequence number validation is enabled?
+     *
+     * @return true if the log segment sequence number validation is enabled, otherwise false.
+     */
+    public DistributedLogConfiguration setLogSegmentSequenceNumberValidationEnabled(boolean enabled) {
+        setProperty(BKDL_LOGSEGMENT_SEQUENCE_NUMBER_VALIDATION_ENABLED, enabled);
+        return this;
+    }
+
+    /**
      * Whether we should publish record counts in the log records and metadata.
      * <p>By default it is true. This is a legacy setting for log segment version 1. It
      * should be considered removed.
@@ -1587,6 +1616,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      *
      * @return log flush timeout in seconds.
      */
+    // @Deprecated
     public int getLogFlushTimeoutSeconds() {
         return this.getInt(BKDL_LOG_FLUSH_TIMEOUT, BKDL_LOG_FLUSH_TIMEOUT_DEFAULT);
     }
@@ -2221,6 +2251,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    /**
+     * Get the flag whether to deserialize record set on reads.
+     *
+     * @return true if it should deserialize, otherwise false.
+     */
+    public boolean getDeserializeRecordSetOnReads() {
+        return getBoolean(BKDL_DESERIALIZE_RECORDSET_ON_READS, BKDL_DESERIALIZE_RECORDSET_ON_READS_DEFAULT);
+    }
+
+    /**
+     * Enable or disable deserialize recordset on reads.
+     *
+     * @param enabled
+     *          flag whether to deserialize recordset
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setDeserializeRecordSetOnReads(boolean enabled) {
+        setProperty(BKDL_DESERIALIZE_RECORDSET_ON_READS, enabled);
+        return this;
+    }
+
     //
     // Idle reader settings
     //
@@ -2513,6 +2564,28 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis(long thresholdMillis) {
         setProperty(BKDL_READAHEAD_NOSUCHLEDGER_EXCEPTION_ON_READLAC_ERROR_THRESHOLD_MILLIS, thresholdMillis);
+        return this;
+    }
+
+    /**
+     * When corruption is encountered in an entry, skip it and move on. Must disable gap detection for
+     * this to work.
+     *
+     * @return should broken records be skipped
+     */
+    public boolean getReadAheadSkipBrokenEntries() {
+        return getBoolean(BKDL_READAHEAD_SKIP_BROKEN_ENTRIES, BKDL_READAHEAD_SKIP_BROKEN_ENTRIES_DEFAULT);
+    }
+
+    /**
+     * Set the percentage of operations to delay in read ahead.
+     *
+     * @param enabled
+     *          should brokenn records be skipped
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setReadAheadSkipBrokenEntries(boolean enabled) {
+        setProperty(BKDL_READAHEAD_SKIP_BROKEN_ENTRIES, enabled);
         return this;
     }
 
@@ -3082,6 +3155,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Get the flag whether to inject broken entries in readahead.
+     *
+     * @return true if to inject corruption in read ahead, otherwise false.
+     */
+    public boolean getEIInjectReadAheadBrokenEntries() {
+        return getBoolean(BKDL_EI_INJECT_READAHEAD_BROKEN_ENTRIES, BKDL_EI_INJECT_READAHEAD_BROKEN_ENTRIES_DEFAULT);
+    }
+
+    /**
+     * Set the flag whether to inject broken entries in read ahead.
+     *
+     * @param enabled
+     *          flag to inject corruption in read ahead.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setEIInjectReadAheadBrokenEntries(boolean enabled) {
+        setProperty(BKDL_EI_INJECT_READAHEAD_BROKEN_ENTRIES, enabled);
+        return this;
+    }
+
+    /**
      * Get the flag whether to inject delay in read ahead.
      *
      * @return true if to inject delays in read ahead, otherwise false.
@@ -3143,4 +3237,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         setProperty(BKDL_EI_INJECT_READAHEAD_DELAY_PERCENT, percent);
         return this;
     }
+
+
 }

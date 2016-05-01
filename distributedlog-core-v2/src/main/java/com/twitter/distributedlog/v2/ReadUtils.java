@@ -7,6 +7,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.twitter.distributedlog.Entry;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import org.apache.bookkeeper.client.AsyncCallback;
@@ -237,13 +238,16 @@ public class ReadUtils {
             LedgerEntry entry,
             ScanContext context,
             LogRecordSelector selector) throws IOException {
-        LogRecord.Reader reader =
-                new LedgerEntryReader(streamName, logSegmentSeqNo, entry,
-                        metadata.getEnvelopeEntries(), NullStatsLogger.INSTANCE);
-        LogRecordWithDLSN nextRecord = reader.readOp();
+        Entry.Reader reader = Entry.newBuilder()
+                .setLogSegmentInfo(logSegmentSeqNo, Long.MIN_VALUE)
+                .setEntryId(entry.getEntryId())
+                .setEnvelopeEntry(metadata.getEnvelopeEntries())
+                .setInputStream(entry.getEntryInputStream())
+                .buildReader();
+        LogRecordWithDLSN nextRecord = reader.nextRecord();
         while (nextRecord != null) {
             LogRecordWithDLSN record = nextRecord;
-            nextRecord = reader.readOp();
+            nextRecord = reader.nextRecord();
             context.numRecordsScanned.incrementAndGet();
             if (!context.includeControl && record.isControl()) {
                 continue;

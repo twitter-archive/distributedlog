@@ -4,15 +4,19 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nullable;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
+import com.google.common.collect.Lists;
 import com.google.common.io.Closeables;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.function.VoidFunctions;
 import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.util.Await;
@@ -23,15 +27,14 @@ import com.twitter.util.Throw;
 import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.zookeeper.ZooKeeper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import scala.runtime.BoxedUnit;
-
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import scala.runtime.BoxedUnit;
 
 /**
  * Basic Utilities.
@@ -413,6 +416,17 @@ public class Utils {
         return promise;
     }
 
+    public static Future<Void> asyncClose(@Nullable AsyncCloseable closeable,
+                                          boolean swallowIOException) {
+        if (null == closeable) {
+            return Future.Void();
+        } else if (swallowIOException) {
+            return FutureUtils.ignore(closeable.asyncClose());
+        } else {
+            return closeable.asyncClose();
+        }
+    }
+
     /**
      * Sync zookeeper client on given <i>path</i>.
      *
@@ -457,23 +471,12 @@ public class Utils {
      * @param closeable
      *          closeable to close
      */
-    public static void close(Closeable closeable) {
+    public static void close(@Nullable Closeable closeable) {
+        if (null == closeable) {
+            return;
+        }
         try {
             Closeables.close(closeable, true);
-        } catch (IOException e) {
-            // no-op. the exception is swallowed.
-        }
-    }
-
-    /**
-     * Close an lock.
-     *
-     * @param lock
-     *          lock to close
-     */
-    public static void closeQuietly(DistributedLock lock) {
-        try {
-            FutureUtils.result(lock.close());
         } catch (IOException e) {
             // no-op. the exception is swallowed.
         }
@@ -485,12 +488,66 @@ public class Utils {
      * @param closeable
      *          closeable to close
      */
-    public static void close(AsyncCloseable closeable) {
+    public static void close(@Nullable AsyncCloseable closeable)
+            throws IOException {
+        if (null == closeable) {
+            return;
+        }
+        FutureUtils.result(closeable.asyncClose());
+    }
+
+    /**
+     * Close an async closeable.
+     *
+     * @param closeable
+     *          closeable to close
+     */
+    public static void closeQuietly(@Nullable AsyncCloseable closeable) {
+        if (null == closeable) {
+            return;
+        }
         try {
-            FutureUtils.result(closeable.close());
+            FutureUtils.result(closeable.asyncClose());
         } catch (IOException e) {
             // no-op. the exception is swallowed.
         }
+    }
+
+    /**
+     * Close the closeables in sequence.
+     *
+     * @param closeables
+     *          closeables to close
+     * @return future represents the close future
+     */
+    public static Future<Void> closeSequence(ExecutorService executorService,
+                                             AsyncCloseable... closeables) {
+        return closeSequence(executorService, false, closeables);
+    }
+
+    /**
+     * Close the closeables in sequence and ignore errors during closing.
+     *
+     * @param executorService executor to execute closeable
+     * @param ignoreCloseError whether to ignore errors during closing
+     * @param closeables list of closeables
+     * @return future represents the close future.
+     */
+    public static Future<Void> closeSequence(ExecutorService executorService,
+                                             boolean ignoreCloseError,
+                                             AsyncCloseable... closeables) {
+        List<AsyncCloseable> closeableList = Lists.newArrayListWithExpectedSize(closeables.length);
+        for (AsyncCloseable closeable : closeables) {
+            if (null == closeable) {
+                closeableList.add(AsyncCloseable.NULL);
+            } else {
+                closeableList.add(closeable);
+            }
+        }
+        return FutureUtils.processList(
+                closeableList,
+                ignoreCloseError ? AsyncCloseable.CLOSE_FUNC_IGNORE_ERRORS : AsyncCloseable.CLOSE_FUNC,
+                executorService).map(VoidFunctions.LIST_TO_VOID_FUNC);
     }
 
 }

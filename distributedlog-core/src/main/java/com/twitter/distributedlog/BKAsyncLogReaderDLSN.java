@@ -11,6 +11,7 @@ import com.twitter.distributedlog.exceptions.ReadCancelledException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.injector.AsyncFailureInjector;
 import com.twitter.distributedlog.injector.AsyncRandomFailureInjector;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Future;
@@ -83,7 +84,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private final ScheduledFuture<?> idleReaderTimeoutTask;
     private ScheduledFuture<?> backgroundScheduleTask = null;
 
-    protected boolean closed = false;
+    protected Promise<Void> closeFuture = null;
 
     private boolean lockStream = false;
 
@@ -190,15 +191,15 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     BKAsyncLogReaderDLSN(BKDistributedLogManager bkdlm,
                          ScheduledExecutorService executorService,
                          OrderedScheduler lockStateExecutor,
-                         String streamIdentifier,
                          DLSN startDLSN,
                          Optional<String> subscriberId,
                          boolean returnEndOfStreamRecord,
+                         boolean deserializeRecordSet,
                          StatsLogger statsLogger) {
         this.bkDistributedLogManager = bkdlm;
         this.executorService = executorService;
-        this.bkLedgerManager = bkDistributedLogManager.createReadLedgerHandler(streamIdentifier, subscriberId,
-                lockStateExecutor, this, true);
+        this.bkLedgerManager = bkDistributedLogManager.createReadHandler(subscriberId,
+                lockStateExecutor, this, deserializeRecordSet, true);
         sessionExpireWatcher = this.bkLedgerManager.registerExpirationHandler(this);
         LOG.debug("Starting async reader at {}", startDLSN);
         this.startDLSN = startDLSN;
@@ -215,6 +216,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                               bkdlm.getConf().getEIInjectMaxReadAheadDelayMs())
                 .injectErrors(false, 10)
                 .injectStops(bkdlm.getConf().getEIInjectReadAheadStall(), 10)
+                .injectCorruption(bkdlm.getConf().getEIInjectReadAheadBrokenEntries())
                 .build();
 
         // Stats
@@ -432,7 +434,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     public synchronized void scheduleBackgroundRead() {
         // if the reader is already closed, we don't need to schedule background read again.
-        if (closed) {
+        if (null != closeFuture) {
             return;
         }
 
@@ -444,14 +446,15 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     }
 
     @Override
-    public void close() {
+    public Future<Void> asyncClose() {
         // Cancel the idle reader timeout task, interrupting if necessary
         ReadCancelledException exception;
+        Promise<Void> closePromise;
         synchronized (this) {
-            if (closed) {
-                return;
+            if (null != closeFuture) {
+                return closeFuture;
             }
-            closed = true;
+            closePromise = closeFuture = new Promise<Void>();
             exception = new ReadCancelledException(bkLedgerManager.getFullyQualifiedName(), "Reader was closed");
             setLastException(exception);
         }
@@ -475,8 +478,8 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
         bkLedgerManager.unregister(sessionExpireWatcher);
 
-        // Also releases the read lock, if acquired.
-        bkLedgerManager.close();
+        FutureUtils.ignore(bkLedgerManager.asyncClose()).proxyTo(closePromise);
+        return closePromise;
     }
 
     private void cancelAllPendingReads(Throwable throwExc) {
@@ -565,7 +568,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                                     throw new DLIllegalStateException("Gap detected between records at dlsn = " + record.getDlsn());
                                 }
                             }
-                            lastPosition = record.getPositionWithinLogSegment();
+                            lastPosition = record.getLastPositionWithinLogSegment();
 
                             nextRequest.addRecord(record);
                         }

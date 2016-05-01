@@ -230,7 +230,6 @@ public class TestDynamicDistributedLogConfiguration {
                 BKDL_BOOKKEEPER_ACK_QUORUM_SIZE_DEFAULT + 4);
     }
 
-
     @Test(timeout = 20000)
     public void testIsDurableWriteEnabled() {
         ConcurrentBaseConfiguration defaultConfig = new ConcurrentBaseConfiguration();

@@ -3,7 +3,6 @@ package com.twitter.distributedlog.impl;
 import com.google.common.annotations.VisibleForTesting;
 import com.twitter.distributedlog.logsegment.LogSegmentEntryWriter;
 import org.apache.bookkeeper.client.AsyncCallback;
-import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerHandle;
 
 /**
@@ -28,8 +27,8 @@ public class BKLogSegmentEntryWriter implements LogSegmentEntryWriter {
     }
 
     @Override
-    public void close() throws BKException, InterruptedException {
-        lh.close();
+    public void asyncClose(AsyncCallback.CloseCallback callback, Object ctx) {
+        lh.asyncClose(callback, ctx);
     }
 
     @Override

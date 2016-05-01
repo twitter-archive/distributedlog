@@ -18,6 +18,7 @@ import com.twitter.distributedlog.service.stream.Stream;
 import com.twitter.distributedlog.service.streamset.DelimiterStreamPartitionConverter;
 import com.twitter.distributedlog.service.streamset.IdentityStreamPartitionConverter;
 import com.twitter.distributedlog.service.streamset.StreamPartitionConverter;
+import com.twitter.distributedlog.thrift.service.HeartbeatOptions;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteContext;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
@@ -131,12 +132,10 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 latch);
     }
 
-    private StreamImpl createStream(DistributedLogServiceImpl service,
-                                String name) throws Exception {
+    private StreamImpl createUnstartedStream(DistributedLogServiceImpl service,
+                                             String name) throws Exception {
         StreamImpl stream = (StreamImpl) service.newStream(name);
         stream.initialize();
-        stream.suspendAcquiring();
-        stream.start();
         return stream;
     }
 
@@ -154,9 +153,11 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testAcquireStreams() throws Exception {
         String streamName = testName.getMethodName();
-        StreamImpl s0 = createStream(service, streamName);
+        StreamImpl s0 = createUnstartedStream(service, streamName);
+        s0.suspendAcquiring();
         DistributedLogServiceImpl service1 = createService(serverConf, dlConf);
-        StreamImpl s1 = createStream(service1, streamName);
+        StreamImpl s1 = createUnstartedStream(service1, streamName);
+        s1.suspendAcquiring();
 
         // create write ops
         WriteOp op0 = createWriteOp(service, streamName, 0L);
@@ -171,8 +172,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         assertEquals("Write Op 1 should be pending in service 1",
                 1, s1.numPendingOps());
 
-        // resume acquiring s0
-        s0.resumeAcquiring();
+        // start acquiring s0
+        s0.resumeAcquiring().start();
         WriteResponse wr0 = Await.result(op0.result());
         assertEquals("Op 0 should succeed",
                 StatusCode.SUCCESS, wr0.getHeader().getCode());
@@ -182,8 +183,8 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         assertNotNull(s0.getWriter());
         assertNull(s0.getLastException());
 
-        // resume acquiring s1
-        s1.resumeAcquiring();
+        // start acquiring s1
+        s1.resumeAcquiring().start();
         WriteResponse wr1 = Await.result(op1.result());
         assertEquals("Op 1 should fail",
                 StatusCode.FOUND, wr1.getHeader().getCode());
@@ -295,7 +296,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testCloseShouldErrorOutPendingOps() throws Exception {
         String streamName = testName.getMethodName();
-        StreamImpl s = createStream(service, streamName);
+        StreamImpl s = createUnstartedStream(service, streamName);
 
         int numWrites = 10;
         List<Future<WriteResponse>> futureList = new ArrayList<Future<WriteResponse>>(numWrites);
@@ -319,7 +320,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testCloseTwice() throws Exception {
         String streamName = testName.getMethodName();
-        StreamImpl s = createStream(service, streamName);
+        StreamImpl s = createUnstartedStream(service, streamName);
 
         int numWrites = 10;
         List<Future<WriteResponse>> futureList = new ArrayList<Future<WriteResponse>>(numWrites);
@@ -330,28 +331,15 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         }
         assertEquals(numWrites, s.numPendingOps());
 
-        final CountDownLatch deferCloseLatch = new CountDownLatch(1);
-        service.schedule(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    deferCloseLatch.await();
-                } catch (InterruptedException e) {
-                    logger.warn("Interrupted on deferring closing : ", e);
-                }
-            }
-        }, 0L);
-
         Future<Void> closeFuture0 = s.requestClose("close 0");
-        assertEquals("Stream " + streamName + " should be set to " + StreamStatus.CLOSING,
-                StreamStatus.CLOSING, s.getStatus());
+        assertTrue("Stream " + streamName + " should be set to " + StreamStatus.CLOSING,
+                StreamStatus.CLOSING == s.getStatus() ||
+                StreamStatus.CLOSED == s.getStatus());
         Future<Void> closeFuture1 = s.requestClose("close 1");
-        assertEquals("Stream " + streamName + " should be set to " + StreamStatus.CLOSING,
-                StreamStatus.CLOSING, s.getStatus());
-        assertFalse(closeFuture0.isDefined());
-        assertFalse(closeFuture1.isDefined());
+        assertTrue("Stream " + streamName + " should be set to " + StreamStatus.CLOSING,
+                StreamStatus.CLOSING == s.getStatus() ||
+                StreamStatus.CLOSED == s.getStatus());
 
-        deferCloseLatch.countDown();
         Await.result(closeFuture0);
         assertEquals("Stream " + streamName + " should be set to " + StreamStatus.CLOSED,
                 StreamStatus.CLOSED, s.getStatus());
@@ -370,31 +358,18 @@ public class TestDistributedLogService extends TestDistributedLogBase {
     @Test(timeout = 60000)
     public void testFailRequestsDuringClosing() throws Exception {
         String streamName = testName.getMethodName();
-        StreamImpl s = createStream(service, streamName);
-
-        final CountDownLatch deferCloseLatch = new CountDownLatch(1);
-        service.schedule(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    deferCloseLatch.await();
-                } catch (InterruptedException e) {
-                    logger.warn("Interrupted on deferring closing : ", e);
-                }
-            }
-        }, 0L);
+        StreamImpl s = createUnstartedStream(service, streamName);
 
         Future<Void> closeFuture = s.requestClose("close");
-        assertEquals("Stream " + streamName + " should be set to " + StreamStatus.CLOSING,
-                StreamStatus.CLOSING, s.getStatus());
-        assertFalse(closeFuture.isDefined());
+        assertTrue("Stream " + streamName + " should be set to " + StreamStatus.CLOSING,
+                StreamStatus.CLOSING == s.getStatus() ||
+                StreamStatus.CLOSED == s.getStatus());
         WriteOp op1 = createWriteOp(service, streamName, 0L);
         s.submit(op1);
         WriteResponse response1 = Await.result(op1.result());
         assertEquals("Op should fail with " + StatusCode.STREAM_UNAVAILABLE + " if it is closing",
                 StatusCode.STREAM_UNAVAILABLE, response1.getHeader().getCode());
 
-        deferCloseLatch.countDown();
         Await.result(closeFuture);
         assertEquals("Stream " + streamName + " should be set to " + StreamStatus.CLOSED,
                 StreamStatus.CLOSED, s.getStatus());
@@ -420,18 +395,6 @@ public class TestDistributedLogService extends TestDistributedLogBase {
         DistributedLogServiceImpl localService = createService(serverConfLocal, confLocal);
         StreamManagerImpl streamManager = (StreamManagerImpl) localService.getStreamManager();
 
-        final CountDownLatch deferCloseLatch = new CountDownLatch(1);
-        localService.schedule(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    deferCloseLatch.await();
-                } catch (InterruptedException ie) {
-                    logger.warn("Interrupted on deferring closing : ", ie);
-                }
-            }
-        }, 0L);
-
         int numWrites = 10;
         List<Future<WriteResponse>> futureList = new ArrayList<Future<WriteResponse>>(numWrites);
         for (int i = 0; i < numWrites; i++) {
@@ -443,23 +406,22 @@ public class TestDistributedLogService extends TestDistributedLogBase {
 
         StreamImpl s = (StreamImpl) streamManager.getCachedStreams().get(streamName);
         // the stream should be set CLOSING
-        while (StreamStatus.CLOSING != s.getStatus()) {
+        while (StreamStatus.CLOSING != s.getStatus() &&
+                StreamStatus.CLOSED != s.getStatus()) {
             TimeUnit.MILLISECONDS.sleep(20);
         }
         assertNotNull("Writer should be initialized", s.getWriter());
         assertNull("No exception should be thrown", s.getLastException());
+        Future<Void> closeFuture = s.getCloseFuture();
+        Await.result(closeFuture);
         for (int i = 0; i < numWrites; i++) {
-            assertFalse("Write should not fail before closing",
+            assertTrue("Write should not fail before closing",
                     futureList.get(i).isDefined());
-        }
-
-        // resume closing
-        deferCloseLatch.countDown();
-        // those write ops should be aborted
-        for (int i = 0; i < numWrites - 1; i++) {
             WriteResponse response = Await.result(futureList.get(i));
-            assertEquals("Op should fail with " + StatusCode.WRITE_CANCELLED_EXCEPTION,
-                    StatusCode.WRITE_CANCELLED_EXCEPTION, response.getHeader().getCode());
+            assertTrue("Op should fail with " + StatusCode.WRITE_CANCELLED_EXCEPTION,
+                    StatusCode.BK_TRANSMIT_ERROR == response.getHeader().getCode() ||
+                    StatusCode.WRITE_EXCEPTION == response.getHeader().getCode() ||
+                    StatusCode.WRITE_CANCELLED_EXCEPTION == response.getHeader().getCode());
         }
 
         while (streamManager.getCachedStreams().containsKey(streamName)) {
@@ -624,6 +586,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
             new ServerConfiguration(),
             (byte)0,
             checksum,
+            false,
             disabledFeature,
             DefaultAccessControlManager.INSTANCE);
     }
@@ -677,6 +640,10 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 Lists.newArrayListWithExpectedSize(numStreams * numWrites);
         for (int i = 0; i < numStreams; i++) {
             String streamName = streamNamePrefix + "-" + i;
+            HeartbeatOptions hbOptions = new HeartbeatOptions();
+            hbOptions.setSendHeartBeatToReader(true);
+            // make sure the first log segment of each stream created
+            FutureUtils.result(localService.heartbeatWithOptions(streamName, new WriteContext(), hbOptions));
             for (int j = 0; j < numWrites; j++) {
                 futureList.add(localService.write(streamName, createRecord(i * numWrites + j)));
             }
@@ -725,6 +692,10 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                 Lists.newArrayListWithExpectedSize(numStreams * numWrites);
         for (int i = 0; i < numStreams; i++) {
             String streamName = streamNamePrefix + "-" + i;
+            HeartbeatOptions hbOptions = new HeartbeatOptions();
+            hbOptions.setSendHeartBeatToReader(true);
+            // make sure the first log segment of each stream created
+            FutureUtils.result(localService.heartbeatWithOptions(streamName, new WriteContext(), hbOptions));
             for (int j = 0; j < numWrites; j++) {
                 futureList.add(localService.write(streamName, createRecord(i * numWrites + j)));
             }

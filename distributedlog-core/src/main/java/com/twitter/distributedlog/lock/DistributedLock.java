@@ -22,6 +22,7 @@ import com.google.common.base.Stopwatch;
 import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.FutureUtils.OrderedFutureEventListener;
 import com.twitter.distributedlog.util.OrderedScheduler;
@@ -67,7 +68,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Other internal lock related stats are also exposed under `lock`. See {@link SessionLock}
  * for details.
  */
-public class DistributedLock implements LockListener {
+public class DistributedLock implements LockListener, AsyncCloseable {
 
     static final Logger LOG = LoggerFactory.getLogger(DistributedLock.class);
 
@@ -105,7 +106,7 @@ public class DistributedLock implements LockListener {
             SessionLockFactory lockFactory,
             String lockPath,
             long lockTimeout,
-            StatsLogger statsLogger) throws IOException {
+            StatsLogger statsLogger) {
         this.lockStateExecutor = lockStateExecutor;
         this.lockPath = lockPath;
         this.lockTimeout = lockTimeout;
@@ -145,7 +146,7 @@ public class DistributedLock implements LockListener {
                 lockStateExecutor.submit(lockPath, new Runnable() {
                     @Override
                     public void run() {
-                        close();
+                        asyncClose();
                     }
                 });
                 return BoxedUnit.UNIT;
@@ -161,7 +162,7 @@ public class DistributedLock implements LockListener {
             public void onFailure(Throwable cause) {
                 acquireStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
                 // release the lock if fail to acquire
-                close();
+                asyncClose();
             }
         });
         this.lockAcquireFuture = promise;
@@ -394,7 +395,8 @@ public class DistributedLock implements LockListener {
         }
     }
 
-    public Future<Void> close() {
+    @Override
+    public Future<Void> asyncClose() {
         final Promise<Void> closePromise;
         synchronized (this) {
             if (closed) {

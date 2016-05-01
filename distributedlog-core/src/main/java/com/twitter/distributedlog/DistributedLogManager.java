@@ -58,6 +58,13 @@ public interface DistributedLogManager extends MetadataAccessor {
     public void unregisterListener(LogSegmentListener listener);
 
     /**
+     * Open async log writer to write records to the log stream.
+     *
+     * @return result represents the open result
+     */
+    public Future<AsyncLogWriter> openAsyncLogWriter();
+
+    /**
      * Begin writing to the log stream identified by the name
      *
      * @return the writer interface to generate log records
@@ -69,6 +76,7 @@ public interface DistributedLogManager extends MetadataAccessor {
      *
      * @return the writer interface to generate log records
      */
+    // @Deprecated
     public AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException;
 
     /**

@@ -640,6 +640,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     @Override
+    public Future<AsyncLogWriter> openAsyncLogWriter() {
+        throw new UnsupportedOperationException("Not supported in v2");
+    }
+
+    @Override
     public AsyncLogWriter startAsyncLogSegmentNonPartitioned() throws IOException {
         throw new UnsupportedOperationException("Not supported in v2");
     }

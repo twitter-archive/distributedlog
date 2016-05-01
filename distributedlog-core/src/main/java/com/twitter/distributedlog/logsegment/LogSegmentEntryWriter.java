@@ -1,13 +1,13 @@
 package com.twitter.distributedlog.logsegment;
 
 import com.google.common.annotations.Beta;
+import com.twitter.distributedlog.Entry;
 import com.twitter.distributedlog.util.Sizable;
 import org.apache.bookkeeper.client.AsyncCallback;
-import org.apache.bookkeeper.client.BKException;
 
 /**
  * An interface class to write the enveloped entry (serialized bytes of
- * {@link com.twitter.distributedlog.LogRecordSet} into the log segment.
+ * {@link Entry} into the log segment.
  *
  * <p>It is typically used by {@link LogSegmentWriter}.
  *
@@ -28,11 +28,8 @@ public interface LogSegmentEntryWriter extends Sizable {
 
     /**
      * Close the entry writer.
-     *
-     * @throws BKException
-     * @throws InterruptedException
      */
-    void close() throws BKException, InterruptedException;
+    void asyncClose(AsyncCallback.CloseCallback callback, Object ctx);
 
     /**
      * Async add entry to the log segment.

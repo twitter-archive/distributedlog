@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.exceptions.DLIllegalStateException;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadata;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
 import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
@@ -112,11 +113,10 @@ public class TestLogSegmentsZK extends TestDistributedLogBase {
         updateMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, new byte[0]);
         DistributedLogManager dlm1 = namespace.openLog(streamName);
         try {
-            BKSyncLogWriter out1 = (BKSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
-            out1.write(DLMTestUtil.getLogRecordInstance(numSegments));
-            out1.closeAndComplete();
-            MaxLogSegmentSequenceNo max3 = getMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
-            assertEquals(4, max3.getSequenceNumber());
+            dlm1.startLogSegmentNonPartitioned();
+            fail("Should fail with unexpected exceptions");
+        } catch (UnexpectedException ue) {
+            // expected
         } finally {
             dlm1.close();
         }
@@ -125,11 +125,10 @@ public class TestLogSegmentsZK extends TestDistributedLogBase {
         updateMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf, "invalid-max".getBytes(UTF_8));
         DistributedLogManager dlm2 = namespace.openLog(streamName);
         try {
-            BKSyncLogWriter out2 = (BKSyncLogWriter) dlm2.startLogSegmentNonPartitioned();
-            out2.write(DLMTestUtil.getLogRecordInstance(numSegments+1));
-            out2.closeAndComplete();
-            MaxLogSegmentSequenceNo max4 = getMaxLogSegmentSequenceNo(namespace.getSharedWriterZKCForDL(), uri, streamName, conf);
-            assertEquals(5, max4.getSequenceNumber());
+            dlm2.startLogSegmentNonPartitioned();
+            fail("Should fail with unexpected exceptions");
+        } catch (UnexpectedException ue) {
+            // expected
         } finally {
             dlm2.close();
         }
@@ -217,12 +216,11 @@ public class TestLogSegmentsZK extends TestDistributedLogBase {
         BKSyncLogWriter out1 = (BKSyncLogWriter) dlm1.startLogSegmentNonPartitioned();
         out1.write(DLMTestUtil.getLogRecordInstance(1));
         // before out1 complete, out2 is in on recovery
-        BKAsyncLogWriter out2 = (BKAsyncLogWriter) dlm2.startAsyncLogSegmentNonPartitioned();
         // it completed the log segments which bump the version of /ledgers znode
-        out2.recover();
+        BKAsyncLogWriter out2 = (BKAsyncLogWriter) dlm2.startAsyncLogSegmentNonPartitioned();
 
         try {
-            out1.closeAndComplete(true);
+            out1.closeAndComplete();
             fail("Should fail closeAndComplete since other people already completed it.");
         } catch (IOException ioe) {
         }

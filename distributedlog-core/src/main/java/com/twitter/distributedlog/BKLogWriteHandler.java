@@ -2,7 +2,6 @@ package com.twitter.distributedlog;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
-
 import com.google.common.collect.Lists;
 import com.twitter.distributedlog.bk.LedgerAllocator;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
@@ -10,7 +9,9 @@ import com.twitter.distributedlog.exceptions.DLIllegalStateException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.TransactionIdOutOfOrderException;
+import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.exceptions.ZKException;
+import com.twitter.distributedlog.function.GetLastTxIdFunction;
 import com.twitter.distributedlog.impl.BKLogSegmentEntryWriter;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
 import com.twitter.distributedlog.lock.DistributedLock;
@@ -34,7 +35,6 @@ import com.twitter.distributedlog.zk.ZKVersionedSetOp;
 import com.twitter.util.Function;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
-import com.twitter.util.FuturePool;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
@@ -58,9 +58,9 @@ import scala.runtime.AbstractFunction1;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Charsets.UTF_8;
 import static com.twitter.distributedlog.impl.ZKLogSegmentFilters.WRITE_HANDLE_FILTER;
@@ -88,9 +88,8 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final MaxTxId maxTxId;
     protected final MaxLogSegmentSequenceNo maxLogSegmentSequenceNo;
     protected final boolean sanityCheckTxnId;
+    protected final boolean validateLogSegmentSequenceNumber;
     protected final int regionId;
-    protected FuturePool orderedFuturePool;
-    protected final AtomicReference<IOException> metadataException = new AtomicReference<IOException>(null);
     protected volatile boolean closed = false;
     protected final RollingPolicy rollingPolicy;
     protected Future<DistributedLock> lockFuture = null;
@@ -98,6 +97,38 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final FeatureProvider featureProvider;
     protected final DynamicDistributedLogConfiguration dynConf;
     protected final MetadataUpdater metadataUpdater;
+    // tracking the inprogress log segments
+    protected final LinkedList<Long> inprogressLSSNs;
+
+    // Recover Functions
+    private final RecoverLogSegmentFunction recoverLogSegmentFunction =
+            new RecoverLogSegmentFunction();
+    private final AbstractFunction1<List<LogSegmentMetadata>, Future<Long>> recoverLogSegmentsFunction =
+            new AbstractFunction1<List<LogSegmentMetadata>, Future<Long>>() {
+                @Override
+                public Future<Long> apply(List<LogSegmentMetadata> segmentList) {
+                    LOG.info("Initiating Recovery For {} : {}", getFullyQualifiedName(), segmentList);
+                    // if lastLedgerRollingTimeMillis is not updated, we set it to now.
+                    synchronized (BKLogWriteHandler.this) {
+                        if (lastLedgerRollingTimeMillis < 0) {
+                            lastLedgerRollingTimeMillis = Utils.nowInMillis();
+                        }
+                    }
+
+                    if (validateLogSegmentSequenceNumber) {
+                        synchronized (inprogressLSSNs) {
+                            for (LogSegmentMetadata segment : segmentList) {
+                                if (segment.isInProgress()) {
+                                    inprogressLSSNs.addLast(segment.getLogSegmentSequenceNumber());
+                                }
+                            }
+                        }
+                    }
+
+                    return FutureUtils.processList(segmentList, recoverLogSegmentFunction, scheduler).map(
+                            GetLastTxIdFunction.INSTANCE);
+                }
+            };
 
     // Stats
     private final StatsLogger perLogStatsLogger;
@@ -105,18 +136,6 @@ class BKLogWriteHandler extends BKLogHandler {
     private final OpStatsLogger openOpStats;
     private final OpStatsLogger recoverOpStats;
     private final OpStatsLogger deleteOpStats;
-
-    abstract class MetadataOp<T> {
-
-        T process() throws IOException {
-            if (null != metadataException.get()) {
-                throw metadataException.get();
-            }
-            return processOp();
-        }
-
-        abstract T processOp() throws IOException;
-    }
 
     /**
      * Construct a Bookkeeper journal manager.
@@ -127,7 +146,6 @@ class BKLogWriteHandler extends BKLogHandler {
                       BookKeeperClientBuilder bkcBuilder,
                       LogSegmentMetadataStore metadataStore,
                       OrderedScheduler scheduler,
-                      FuturePool orderedFuturePool,
                       LedgerAllocator allocator,
                       StatsLogger statsLogger,
                       StatsLogger perLogStatsLogger,
@@ -141,7 +159,6 @@ class BKLogWriteHandler extends BKLogHandler {
         super(logMetadata, conf, zkcBuilder, bkcBuilder, metadataStore,
               scheduler, statsLogger, alertStatsLogger, null, WRITE_HANDLE_FILTER, clientId);
         this.perLogStatsLogger = perLogStatsLogger;
-        this.orderedFuturePool = orderedFuturePool;
         this.writeLimiter = writeLimiter;
         this.featureProvider = featureProvider;
         this.dynConf = dynConf;
@@ -172,9 +189,11 @@ class BKLogWriteHandler extends BKLogHandler {
             this.regionId = DistributedLogConstants.LOCAL_REGION_ID;
         }
         this.sanityCheckTxnId = conf.getSanityCheckTxnID();
+        this.validateLogSegmentSequenceNumber = conf.isLogSegmentSequenceNumberValidationEnabled();
 
         // Construct the max sequence no
         maxLogSegmentSequenceNo = new MaxLogSegmentSequenceNo(logMetadata.getMaxLSSNData());
+        inprogressLSSNs = new LinkedList<Long>();
         // Construct the max txn id.
         maxTxId = new MaxTxId(zooKeeperClient, logMetadata.getMaxTxIdPath(),
                 conf.getSanityCheckTxnID(), logMetadata.getMaxTxIdData());
@@ -204,12 +223,22 @@ class BKLogWriteHandler extends BKLogHandler {
     // Transactional operations for MaxLogSegmentSequenceNo
     void storeMaxSequenceNumber(final Transaction txn,
                                 final MaxLogSegmentSequenceNo maxSeqNo,
-                                final long seqNo) {
+                                final long seqNo,
+                                final boolean isInprogress) {
         byte[] data = DLUtils.serializeLogSegmentSequenceNumber(seqNo);
         Op zkOp = Op.setData(logMetadata.getLogSegmentsPath(), data, maxSeqNo.getZkVersion());
         txn.addOp(new ZKVersionedSetOp(zkOp, new Transaction.OpListener<Version>() {
             @Override
             public void onCommit(Version version) {
+                if (validateLogSegmentSequenceNumber) {
+                    synchronized (inprogressLSSNs) {
+                        if (isInprogress) {
+                            inprogressLSSNs.add(seqNo);
+                        } else {
+                            inprogressLSSNs.removeFirst();
+                        }
+                    }
+                }
                 maxSeqNo.update((ZkVersion) version, seqNo);
             }
 
@@ -300,15 +329,9 @@ class BKLogWriteHandler extends BKLogHandler {
 
     Future<Void> unlockHandler() {
         if (null != lockFuture) {
-            return lock.close();
+            return lock.asyncClose();
         } else {
             return Future.Void();
-        }
-    }
-
-    void checkMetadataException() throws IOException {
-        if (null != metadataException.get()) {
-            throw metadataException.get();
         }
     }
 
@@ -370,24 +393,27 @@ class BKLogWriteHandler extends BKLogHandler {
         // see no ledger metadata for a stream, we assume that this is the first ledger
         // in the stream
         long logSegmentSeqNo = DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO;
-        boolean ignoreMaxLogSegmentSeqNo = false;
+        boolean logSegmentsFound = false;
 
         if (LogSegmentMetadata.supportsLogSegmentSequenceNo(conf.getDLLedgerMetadataLayoutVersion())) {
             List<LogSegmentMetadata> ledgerListDesc = getFilteredLedgerListDesc(false, false);
             Long nextLogSegmentSeqNo = DLUtils.nextLogSegmentSequenceNumber(ledgerListDesc);
 
             if (null == nextLogSegmentSeqNo) {
+                logSegmentsFound = false;
                 // we don't find last assigned log segment sequence number
                 // then we start the log segment with configured FirstLogSegmentSequenceNumber.
-                ignoreMaxLogSegmentSeqNo = true;
                 logSegmentSeqNo = conf.getFirstLogSegmentSequenceNumber();
             } else {
+                logSegmentsFound = true;
                 // latest log segment is assigned with a sequence number, start with next sequence number
                 logSegmentSeqNo = nextLogSegmentSeqNo;
             }
         }
 
-        if (ignoreMaxLogSegmentSeqNo ||
+        // We only skip log segment sequence number validation only when no log segments found &
+        // the maximum log segment sequence number is "UNASSIGNED".
+        if (!logSegmentsFound &&
             (DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO == maxLogSegmentSequenceNo.getSequenceNumber())) {
             // no ledger seqno stored in /ledgers before
             LOG.info("No max ledger sequence number found while creating log segment {} for {}.",
@@ -395,7 +421,7 @@ class BKLogWriteHandler extends BKLogHandler {
         } else if (maxLogSegmentSequenceNo.getSequenceNumber() + 1 != logSegmentSeqNo) {
             LOG.warn("Unexpected max log segment sequence number {} for {} : list of cached segments = {}",
                 new Object[]{maxLogSegmentSequenceNo.getSequenceNumber(), getFullyQualifiedName(),
-                    getCachedLedgerList(LogSegmentMetadata.DESC_COMPARATOR)});
+                    getCachedLogSegments(LogSegmentMetadata.DESC_COMPARATOR)});
             // there is max log segment number recorded there and it isn't match. throw exception.
             throw new DLIllegalStateException("Unexpected max log segment sequence number "
                 + maxLogSegmentSequenceNo.getSequenceNumber() + " for " + getFullyQualifiedName()
@@ -406,10 +432,21 @@ class BKLogWriteHandler extends BKLogHandler {
     }
 
     protected BKLogSegmentWriter doStartLogSegment(long txId, boolean bestEffort, boolean allowMaxTxID) throws IOException {
-        lock.checkOwnershipAndReacquire();
+        return FutureUtils.result(asyncStartLogSegment(txId, bestEffort, allowMaxTxID));
+    }
+
+    protected Future<BKLogSegmentWriter> asyncStartLogSegment(long txId,
+                                                              boolean bestEffort,
+                                                              boolean allowMaxTxID) {
         Promise<BKLogSegmentWriter> promise = new Promise<BKLogSegmentWriter>();
+        try {
+            lock.checkOwnershipAndReacquire();
+        } catch (LockingException e) {
+            FutureUtils.setException(promise, e);
+            return promise;
+        }
         doStartLogSegment(txId, bestEffort, allowMaxTxID, promise);
-        return FutureUtils.result(promise);
+        return promise;
     }
 
     protected void doStartLogSegment(final long txId,
@@ -497,6 +534,9 @@ class BKLogWriteHandler extends BKLogHandler {
         }
     }
 
+    // once the ledger handle is obtained from allocator, this function should guarantee
+    // either the transaction is executed or aborted. Otherwise, the ledger handle will
+    // just leak from the allocation pool - hence cause "No Ledger Allocator"
     private void createInprogressLogSegment(ZKTransaction txn,
                                             final long txId,
                                             final LedgerHandle lh,
@@ -504,8 +544,12 @@ class BKLogWriteHandler extends BKLogHandler {
                                             final Promise<BKLogSegmentWriter> promise) {
         final long logSegmentSeqNo;
         try {
+            FailpointUtils.checkFailPoint(
+                    FailpointUtils.FailPointName.FP_StartLogSegmentOnAssignLogSegmentSequenceNumber);
             logSegmentSeqNo = assignLogSegmentSequenceNumber();
         } catch (IOException e) {
+            // abort the current prepared transaction
+            txn.abort(e);
             failStartLogSegment(promise, bestEffort, e);
             return;
         }
@@ -530,7 +574,7 @@ class BKLogWriteHandler extends BKLogHandler {
 
         // Try storing max sequence number.
         LOG.debug("Try storing max sequence number in startLogSegment {} : {}", inprogressZnodePath, logSegmentSeqNo);
-        storeMaxSequenceNumber(txn, maxLogSegmentSequenceNo, logSegmentSeqNo);
+        storeMaxSequenceNumber(txn, maxLogSegmentSequenceNo, logSegmentSeqNo, true);
 
         // Try storing max tx id.
         LOG.debug("Try storing MaxTxId in startLogSegment  {} {}", inprogressZnodePath, txId);
@@ -551,7 +595,6 @@ class BKLogWriteHandler extends BKLogHandler {
                             txId,
                             logSegmentSeqNo,
                             scheduler,
-                            orderedFuturePool,
                             statsLogger,
                             perLogStatsLogger,
                             alertStatsLogger,
@@ -574,77 +617,6 @@ class BKLogWriteHandler extends BKLogHandler {
         return rollingPolicy.shouldRollover(writer, lastLedgerRollingTimeMillis);
     }
 
-    class CompleteOp extends MetadataOp<Long> {
-
-        final String inprogressZnodeName;
-        final long logSegmentSeqNo;
-        final long ledgerId;
-        final long firstTxId;
-        final long lastTxId;
-        final int recordCount;
-        final long lastEntryId;
-        final long lastSlotId;
-
-        CompleteOp(String inprogressZnodeName, long logSegmentSeqNo,
-                   long ledgerId, long firstTxId, long lastTxId,
-                   int recordCount, long lastEntryId, long lastSlotId) {
-            this.inprogressZnodeName = inprogressZnodeName;
-            this.logSegmentSeqNo = logSegmentSeqNo;
-            this.ledgerId = ledgerId;
-            this.firstTxId = firstTxId;
-            this.lastTxId = lastTxId;
-            this.recordCount = recordCount;
-            this.lastEntryId = lastEntryId;
-            this.lastSlotId = lastSlotId;
-        }
-
-        @Override
-        Long processOp() throws IOException {
-            lock.checkOwnershipAndReacquire();
-            completeAndCloseLogSegment(inprogressZnodeName, logSegmentSeqNo, ledgerId, firstTxId, lastTxId,
-                    recordCount, lastEntryId, lastSlotId);
-            LOG.info("Recovered {} LastTxId:{}", getFullyQualifiedName(), lastTxId);
-            return lastTxId;
-        }
-
-        @Override
-        public String toString() {
-            return String.format("CompleteOp(lid=%d, (%d-%d), count=%d, lastEntry=(%d, %d))",
-                    ledgerId, firstTxId, lastTxId, recordCount, lastEntryId, lastSlotId);
-        }
-    }
-
-    class CompleteWriterOp extends MetadataOp<Long> {
-
-        final BKLogSegmentWriter writer;
-
-        CompleteWriterOp(BKLogSegmentWriter writer) {
-            this.writer = writer;
-        }
-
-        @Override
-        Long processOp() throws IOException {
-            writer.close();
-            // in theory closeToFinalize should throw exception if a stream is in error.
-            // just in case, add another checking here to make sure we don't close log segment is a stream is in error.
-            if (writer.shouldFailCompleteLogSegment()) {
-                throw new IOException("PerStreamLogWriter for " + writer.getFullyQualifiedLogSegment() + " is already in error.");
-            }
-            completeAndCloseLogSegment(
-                    inprogressZNodeName(writer.getLogSegmentId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
-                    writer.getLogSegmentSequenceNumber(), writer.getLogSegmentId(), writer.getStartTxId(), writer.getLastTxId(),
-                    writer.getPositionWithinLogSegment(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId());
-            return writer.getLastTxId();
-        }
-
-        @Override
-        public String toString() {
-            return String.format("CompleteWriterOp(lid=%d, (%d-%d), count=%d, lastEntry=(%d, %d))",
-                    writer.getLogSegmentId(), writer.getStartTxId(), writer.getLastTxId(),
-                    writer.getPositionWithinLogSegment(), writer.getLastDLSN().getEntryId(), writer.getLastDLSN().getSlotId());
-        }
-    }
-
     /**
      * Finalize a log segment. If the journal manager is currently
      * writing to a ledger, ensure that this is the ledger of the log segment
@@ -654,15 +626,51 @@ class BKLogWriteHandler extends BKLogHandler {
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    public void completeAndCloseLogSegment(BKLogSegmentWriter writer)
-        throws IOException {
-        new CompleteWriterOp(writer).process();
+    Future<LogSegmentMetadata> completeAndCloseLogSegment(final BKLogSegmentWriter writer) {
+        final Promise<LogSegmentMetadata> promise = new Promise<LogSegmentMetadata>();
+        completeAndCloseLogSegment(writer, promise);
+        return promise;
+    }
+
+    private void completeAndCloseLogSegment(final BKLogSegmentWriter writer,
+                                            final Promise<LogSegmentMetadata> promise) {
+        writer.asyncClose().addEventListener(new FutureEventListener<Void>() {
+            @Override
+            public void onSuccess(Void value) {
+                // in theory closeToFinalize should throw exception if a stream is in error.
+                // just in case, add another checking here to make sure we don't close log segment is a stream is in error.
+                if (writer.shouldFailCompleteLogSegment()) {
+                    FutureUtils.setException(promise,
+                            new IOException("LogSegmentWriter for " + writer.getFullyQualifiedLogSegment() + " is already in error."));
+                    return;
+                }
+                doCompleteAndCloseLogSegment(
+                        inprogressZNodeName(writer.getLogSegmentId(), writer.getStartTxId(), writer.getLogSegmentSequenceNumber()),
+                        writer.getLogSegmentSequenceNumber(),
+                        writer.getLogSegmentId(),
+                        writer.getStartTxId(),
+                        writer.getLastTxId(),
+                        writer.getPositionWithinLogSegment(),
+                        writer.getLastDLSN().getEntryId(),
+                        writer.getLastDLSN().getSlotId(),
+                        promise);
+            }
+
+            @Override
+            public void onFailure(Throwable cause) {
+                FutureUtils.setException(promise, cause);
+            }
+        });
     }
 
     @VisibleForTesting
-    void completeAndCloseLogSegment(long logSegmentSeqNo, long ledgerId, long firstTxId, long lastTxId, int recordCount)
+    LogSegmentMetadata completeAndCloseLogSegment(long logSegmentSeqNo,
+                                                  long ledgerId,
+                                                  long firstTxId,
+                                                  long lastTxId,
+                                                  int recordCount)
         throws IOException {
-        completeAndCloseLogSegment(inprogressZNodeName(ledgerId, firstTxId, logSegmentSeqNo), logSegmentSeqNo,
+        return completeAndCloseLogSegment(inprogressZNodeName(ledgerId, firstTxId, logSegmentSeqNo), logSegmentSeqNo,
             ledgerId, firstTxId, lastTxId, recordCount, -1, -1);
     }
 
@@ -675,17 +683,19 @@ class BKLogWriteHandler extends BKLogHandler {
      * the firstTxId of the ledger matches firstTxId for the segment we are
      * trying to finalize.
      */
-    void completeAndCloseLogSegment(String inprogressZnodeName, long logSegmentSeqNo,
-                                    long ledgerId, long firstTxId, long lastTxId,
-                                    int recordCount, long lastEntryId, long lastSlotId)
+    LogSegmentMetadata completeAndCloseLogSegment(String inprogressZnodeName, long logSegmentSeqNo,
+                                                  long ledgerId, long firstTxId, long lastTxId,
+                                                  int recordCount, long lastEntryId, long lastSlotId)
             throws IOException {
         Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
-            doCompleteAndCloseLogSegment(inprogressZnodeName, logSegmentSeqNo,
-                                         ledgerId, firstTxId, lastTxId, recordCount,
-                                         lastEntryId, lastSlotId);
+            LogSegmentMetadata completedLogSegment =
+                    doCompleteAndCloseLogSegment(inprogressZnodeName, logSegmentSeqNo,
+                            ledgerId, firstTxId, lastTxId, recordCount,
+                            lastEntryId, lastSlotId);
             success = true;
+            return completedLogSegment;
         } finally {
             if (success) {
                 closeOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
@@ -725,16 +735,16 @@ class BKLogWriteHandler extends BKLogHandler {
      * @param lastSlotId
      * @throws IOException
      */
-    protected void doCompleteAndCloseLogSegment(String inprogressZnodeName,
-                                                long logSegmentSeqNo,
-                                                long ledgerId,
-                                                long firstTxId,
-                                                long lastTxId,
-                                                int recordCount,
-                                                long lastEntryId,
-                                                long lastSlotId)
-            throws IOException {
-        Promise<Void> promise = new Promise<Void>();
+    protected LogSegmentMetadata doCompleteAndCloseLogSegment(
+            String inprogressZnodeName,
+            long logSegmentSeqNo,
+            long ledgerId,
+            long firstTxId,
+            long lastTxId,
+            int recordCount,
+            long lastEntryId,
+            long lastSlotId) throws IOException {
+        Promise<LogSegmentMetadata> promise = new Promise<LogSegmentMetadata>();
         doCompleteAndCloseLogSegment(
                 inprogressZnodeName,
                 logSegmentSeqNo,
@@ -745,7 +755,7 @@ class BKLogWriteHandler extends BKLogHandler {
                 lastEntryId,
                 lastSlotId,
                 promise);
-        FutureUtils.result(promise);
+        return FutureUtils.result(promise);
     }
 
     protected void doCompleteAndCloseLogSegment(final String inprogressZnodeName,
@@ -756,7 +766,7 @@ class BKLogWriteHandler extends BKLogHandler {
                                                 int recordCount,
                                                 long lastEntryId,
                                                 long lastSlotId,
-                                                final Promise<Void> promise) {
+                                                final Promise<LogSegmentMetadata> promise) {
         try {
             lock.checkOwnershipAndReacquire();
         } catch (IOException ioe) {
@@ -776,10 +786,53 @@ class BKLogWriteHandler extends BKLogHandler {
                     + ledgerId + " expected"));
             return;
         }
+        // validate the transaction id
         if (inprogressLogSegment.getFirstTxId() != firstTxId) {
             FutureUtils.setException(promise, new IOException("Transaction id not as expected, "
                 + inprogressLogSegment.getFirstTxId() + " found, " + firstTxId + " expected"));
             return;
+        }
+        // validate the log sequence number
+        if (validateLogSegmentSequenceNumber) {
+            synchronized (inprogressLSSNs) {
+                if (inprogressLSSNs.isEmpty()) {
+                    FutureUtils.setException(promise, new UnexpectedException(
+                            "Didn't find matched inprogress log segments when completing inprogress "
+                                    + inprogressLogSegment));
+                    return;
+                }
+                long leastInprogressLSSN = inprogressLSSNs.getFirst();
+                // the log segment sequence number in metadata {@link inprogressLogSegment.getLogSegmentSequenceNumber()}
+                // should be same as the sequence number we are completing (logSegmentSeqNo)
+                // and
+                // it should also be same as the least inprogress log segment sequence number tracked in {@link inprogressLSSNs}
+                if ((inprogressLogSegment.getLogSegmentSequenceNumber() != logSegmentSeqNo) ||
+                        (leastInprogressLSSN != logSegmentSeqNo)) {
+                    FutureUtils.setException(promise, new UnexpectedException(
+                            "Didn't find matched inprogress log segments when completing inprogress "
+                                    + inprogressLogSegment));
+                    return;
+                }
+            }
+        }
+
+        // store max sequence number.
+        long maxSeqNo= Math.max(logSegmentSeqNo, maxLogSegmentSequenceNo.getSequenceNumber());
+        if (maxLogSegmentSequenceNo.getSequenceNumber() == logSegmentSeqNo ||
+                (maxLogSegmentSequenceNo.getSequenceNumber() == logSegmentSeqNo + 1)) {
+            // ignore the case that a new inprogress log segment is pre-allocated
+            // before completing current inprogress one
+            LOG.info("Try storing max sequence number {} in completing {}.",
+                    new Object[] { logSegmentSeqNo, inprogressZnodePath });
+        } else {
+            LOG.warn("Unexpected max ledger sequence number {} found while completing log segment {} for {}",
+                    new Object[] { maxLogSegmentSequenceNo.getSequenceNumber(), logSegmentSeqNo, getFullyQualifiedName() });
+            if (validateLogSegmentSequenceNumber) {
+                FutureUtils.setException(promise, new DLIllegalStateException("Unexpected max log segment sequence number "
+                        + maxLogSegmentSequenceNo.getSequenceNumber() + " for " + getFullyQualifiedName()
+                        + ", expected " + (logSegmentSeqNo - 1)));
+                return;
+            }
         }
 
         // Prepare the completion
@@ -815,24 +868,8 @@ class BKLogWriteHandler extends BKLogHandler {
                 pathForCompletedLedger);
         // delete inprogress log segment
         deleteLogSegment(txn, inprogressZnodeName, inprogressZnodePath);
-        // store max sequence number.
-        long maxSeqNo= Math.max(logSegmentSeqNo, maxLogSegmentSequenceNo.getSequenceNumber());
-        if (DistributedLogConstants.UNASSIGNED_LOGSEGMENT_SEQNO == maxLogSegmentSequenceNo.getSequenceNumber()) {
-            // no ledger seqno stored in /ledgers before
-            LOG.warn("No max ledger sequence number found while completing log segment {} for {}.",
-                     logSegmentSeqNo, inprogressZnodePath);
-        } else if (maxLogSegmentSequenceNo.getSequenceNumber() != logSegmentSeqNo) {
-            // ignore the case that a new inprogress log segment is pre-allocated
-            // before completing current inprogress one
-            if (maxLogSegmentSequenceNo.getSequenceNumber() != logSegmentSeqNo + 1) {
-                LOG.warn("Unexpected max ledger sequence number {} found while completing log segment {} for {}",
-                        new Object[] { maxLogSegmentSequenceNo.getSequenceNumber(), logSegmentSeqNo, getFullyQualifiedName() });
-            }
-        } else {
-            LOG.info("Try storing max sequence number {} in completing {}.",
-                     new Object[] { logSegmentSeqNo, inprogressZnodePath });
-        }
-        storeMaxSequenceNumber(txn, maxLogSegmentSequenceNo, maxSeqNo);
+        // store max sequence number
+        storeMaxSequenceNumber(txn, maxLogSegmentSequenceNo, maxSeqNo, false);
         // update max txn id.
         LOG.debug("Trying storing LastTxId in Finalize Path {} LastTxId {}", pathForCompletedLedger, lastTxId);
         storeMaxTxId(txn, maxTxId, lastTxId);
@@ -842,120 +879,84 @@ class BKLogWriteHandler extends BKLogHandler {
             public void onSuccess(Void value) {
                 LOG.info("Completed {} to {} for {} : {}",
                         new Object[] { inprogressZnodeName, nameForCompletedLedger, getFullyQualifiedName(), completedLogSegment });
-                FutureUtils.setValue(promise, value);
+                FutureUtils.setValue(promise, completedLogSegment);
             }
 
             @Override
             public void onFailure(Throwable cause) {
                 FutureUtils.setException(promise, cause);
             }
-
         }, scheduler));
     }
 
-    public synchronized long recoverIncompleteLogSegments() throws IOException {
-        FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_RecoverIncompleteLogSegments);
-        return new RecoverOp().process();
+    public Future<Long> recoverIncompleteLogSegments() {
+        try {
+            FailpointUtils.checkFailPoint(FailpointUtils.FailPointName.FP_RecoverIncompleteLogSegments);
+        } catch (IOException ioe) {
+            return Future.exception(ioe);
+        }
+        return asyncGetFilteredLedgerList(false, false).flatMap(recoverLogSegmentsFunction);
     }
 
-    class RecoverOp extends MetadataOp<Long> {
+    class RecoverLogSegmentFunction extends Function<LogSegmentMetadata, Future<LogSegmentMetadata>> {
 
         @Override
-        Long processOp() throws IOException {
-            Stopwatch stopwatch = Stopwatch.createStarted();
-            boolean success = false;
-
-            try {
-                long lastTxId;
-                synchronized (BKLogWriteHandler.this) {
-                    lastTxId = doProcessOp();
-                }
-                success = true;
-                return lastTxId;
-            } finally {
-                if (success) {
-                    recoverOpStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-                } else {
-                    recoverOpStats.registerFailedEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
-                }
+        public Future<LogSegmentMetadata> apply(final LogSegmentMetadata l) {
+            if (!l.isInProgress()) {
+                return Future.value(l);
             }
+
+            LOG.info("Recovering last record in log segment {} for {}.", l, getFullyQualifiedName());
+            return asyncReadLastRecord(l, true, true, true).flatMap(
+                    new AbstractFunction1<LogRecordWithDLSN, Future<LogSegmentMetadata>>() {
+                        @Override
+                        public Future<LogSegmentMetadata> apply(LogRecordWithDLSN lastRecord) {
+                            return completeLogSegment(l, lastRecord);
+                        }
+                    });
         }
 
-        long doProcessOp() throws IOException {
-            List<LogSegmentMetadata> segmentList = getFilteredLedgerList(false, false);
-            LOG.info("Initiating Recovery For {} : {}", getFullyQualifiedName(), segmentList);
-            // if lastLedgerRollingTimeMillis is not updated, we set it to now.
-            synchronized (BKLogWriteHandler.this) {
-                if (lastLedgerRollingTimeMillis < 0) {
-                    lastLedgerRollingTimeMillis = Utils.nowInMillis();
-                }
-            }
-            long lastTxId = DistributedLogConstants.INVALID_TXID;
-            for (LogSegmentMetadata l : segmentList) {
-                if (!l.isInProgress()) {
-                    lastTxId = Math.max(lastTxId, l.getLastTxId());
-                    continue;
-                }
-                long recoveredTxId = new RecoverLogSegmentOp(l).process();
-                lastTxId = Math.max(lastTxId, recoveredTxId);
-            }
-            return lastTxId;
-        }
+        private Future<LogSegmentMetadata> completeLogSegment(LogSegmentMetadata l,
+                                                              LogRecordWithDLSN lastRecord) {
+            LOG.info("Recovered last record in log segment {} for {}.", l, getFullyQualifiedName());
 
-        @Override
-        public String toString() {
-            return String.format("RecoverOp(%s)", getFullyQualifiedName());
-        }
-    }
-
-    class RecoverLogSegmentOp extends MetadataOp<Long> {
-
-        final LogSegmentMetadata l;
-
-        RecoverLogSegmentOp(LogSegmentMetadata l) {
-            this.l = l;
-        }
-
-        @Override
-        Long processOp() throws IOException {
             long endTxId = DistributedLogConstants.EMPTY_LOGSEGMENT_TX_ID;
             int recordCount = 0;
             long lastEntryId = -1;
             long lastSlotId = -1;
 
-            LOG.info("Recovering last record in log segment {} for {}.", l, getFullyQualifiedName());
-            LogRecordWithDLSN record = recoverLastRecordInLedger(l, true, true, true);
-            LOG.info("Recovered last record in log segment {} for {}.", l, getFullyQualifiedName());
-
-            if (null != record) {
-                endTxId = record.getTransactionId();
-                recordCount = record.getPositionWithinLogSegment();
-                lastEntryId = record.getDlsn().getEntryId();
-                lastSlotId = record.getDlsn().getSlotId();
+            if (null != lastRecord) {
+                endTxId = lastRecord.getTransactionId();
+                recordCount = lastRecord.getLastPositionWithinLogSegment();
+                lastEntryId = lastRecord.getDlsn().getEntryId();
+                lastSlotId = lastRecord.getDlsn().getSlotId();
             }
 
             if (endTxId == DistributedLogConstants.INVALID_TXID) {
                 LOG.error("Unrecoverable corruption has occurred in segment "
                     + l.toString() + " at path " + l.getZkPath()
                     + ". Unable to continue recovery.");
-                throw new IOException("Unrecoverable corruption,"
-                    + " please check logs.");
+                return Future.exception(new IOException("Unrecoverable corruption,"
+                    + " please check logs."));
             } else if (endTxId == DistributedLogConstants.EMPTY_LOGSEGMENT_TX_ID) {
                 // TODO: Empty ledger - Ideally we should just remove it?
                 endTxId = l.getFirstTxId();
             }
 
-            CompleteOp completeOp = new CompleteOp(
-                    l.getZNodeName(), l.getLogSegmentSequenceNumber(),
-                    l.getLedgerId(), l.getFirstTxId(), endTxId,
-                    recordCount, lastEntryId, lastSlotId);
-            return completeOp.process();
+            Promise<LogSegmentMetadata> promise = new Promise<LogSegmentMetadata>();
+            doCompleteAndCloseLogSegment(
+                    l.getZNodeName(),
+                    l.getLogSegmentSequenceNumber(),
+                    l.getLedgerId(),
+                    l.getFirstTxId(),
+                    endTxId,
+                    recordCount,
+                    lastEntryId,
+                    lastSlotId,
+                    promise);
+            return promise;
         }
 
-        @Override
-        public String toString() {
-            return String.format("RecoverLogSegmentOp(%s)", l);
-        }
     }
 
     public void deleteLog() throws IOException {
@@ -1237,17 +1238,22 @@ class BKLogWriteHandler extends BKLogHandler {
         });
     }
 
-    public void close() {
-        synchronized (this) {
-            if (closed) {
-                return;
+    @Override
+    public Future<Void> asyncClose() {
+        return Utils.closeSequence(scheduler,
+                lock,
+                ledgerAllocator
+        ).flatMap(new AbstractFunction1<Void, Future<Void>>() {
+            @Override
+            public Future<Void> apply(Void result) {
+                return BKLogWriteHandler.super.asyncClose();
             }
-            closed = true;
-        }
-        Utils.closeQuietly(lock);
-        ledgerAllocator.close();
-        // close the zookeeper client & bookkeeper client after closing the lock
-        super.close();
+        });
+    }
+
+    @Override
+    public Future<Void> asyncAbort() {
+        return asyncClose();
     }
 
     String completedLedgerZNodeName(long firstTxId, long lastTxId, long logSegmentSeqNo) {

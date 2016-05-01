@@ -4,6 +4,8 @@ import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.runtime.AbstractFunction1;
+import scala.runtime.BoxedUnit;
 
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
@@ -161,11 +163,13 @@ public class TestReader implements FutureEventListener<LogRecordWithDLSN> {
 
     private void closeReader() {
         if (null != reader) {
-            try {
-                reader.close();
-            } catch (Exception exc) {
-                LOG.warn("Exception on closing reader {} : ", readerName, exc);
-            }
+            reader.asyncClose().onFailure(new AbstractFunction1<Throwable, BoxedUnit>() {
+                @Override
+                public BoxedUnit apply(Throwable cause) {
+                    LOG.warn("Exception on closing reader {} : ", readerName, cause);
+                    return BoxedUnit.UNIT;
+                }
+            });
         }
     }
 

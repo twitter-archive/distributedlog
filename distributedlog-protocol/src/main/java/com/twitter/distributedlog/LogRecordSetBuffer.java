@@ -1,24 +1,12 @@
 package com.twitter.distributedlog;
 
-import com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException;
-import com.twitter.distributedlog.io.Buffer;
-import com.twitter.distributedlog.io.TransmitListener;
-
-import java.io.IOException;
+import java.nio.ByteBuffer;
 
 /**
  * Write representation of a {@link LogRecordSet}.
  * It is a buffer of log record set, used for transmission.
  */
-public interface LogRecordSetBuffer extends TransmitListener {
-
-    /**
-     * Return if this record set contains user records.
-     *
-     * @return true if this record set contains user records, otherwise
-     * return false.
-     */
-    boolean hasUserRecords();
+public interface LogRecordSetBuffer {
 
     /**
      * Return number of records in current record set.
@@ -35,19 +23,26 @@ public interface LogRecordSetBuffer extends TransmitListener {
     int getNumBytes();
 
     /**
-     * Return max tx id in current record set.
-     *
-     * @return max tx id.
-     */
-    long getMaxTxId();
-
-    /**
      * Get the buffer to transmit.
      *
      * @return the buffer to transmit.
-     * @throws InvalidEnvelopedEntryException if the record set buffer is invalid
-     * @throws IOException when encountered IOException during serialization
      */
-    Buffer getBuffer() throws InvalidEnvelopedEntryException, IOException;
+    ByteBuffer getBuffer();
+
+    /**
+     * Complete transmit.
+     *
+     * @param lssn log segment sequence number
+     * @param entryId entry id
+     * @param startSlotId start slot id
+     */
+    void completeTransmit(long lssn, long entryId, long startSlotId);
+
+    /**
+     * Abort transmit.
+     *
+     * @param reason reason to abort.
+     */
+    void abortTransmit(Throwable reason);
 
 }

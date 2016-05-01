@@ -1,6 +1,7 @@
 package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+import com.twitter.distributedlog.util.FutureUtils;
 
 import java.io.IOException;
 import java.util.List;
@@ -19,7 +20,7 @@ class BKSyncLogWriter extends BKAbstractLogWriter implements LogWriter {
      */
     @Override
     public void write(LogRecord record) throws IOException {
-        getLedgerWriter(conf.getUnpartitionedStreamName(), record.getTransactionId(), false).write(record);
+        getLedgerWriter(record.getTransactionId(), false).write(record);
     }
 
     /**
@@ -30,8 +31,7 @@ class BKSyncLogWriter extends BKAbstractLogWriter implements LogWriter {
     @Override
     @Deprecated
     public int writeBulk(List<LogRecord> records) throws IOException {
-        return getLedgerWriter(conf.getUnpartitionedStreamName(),
-                records.get(0).getTransactionId(), false).writeBulk(records);
+        return getLedgerWriter(records.get(0).getTransactionId(), false).writeBulk(records);
     }
 
     /**
@@ -42,9 +42,46 @@ class BKSyncLogWriter extends BKAbstractLogWriter implements LogWriter {
      */
     @Override
     public void markEndOfStream() throws IOException {
-        getLedgerWriter(conf.getUnpartitionedStreamName(),
-            DistributedLogConstants.MAX_TXID, true).markEndOfStream();
+        FutureUtils.result(getLedgerWriter(DistributedLogConstants.MAX_TXID, true).markEndOfStream());
         closeAndComplete();
+    }
+
+    /**
+     * All data that has been written to the stream so far will be flushed.
+     * New data can be still written to the stream while flush is ongoing.
+     */
+    @Override
+    public long setReadyToFlush() throws IOException {
+        checkClosedOrInError("setReadyToFlush");
+        long highestTransactionId = 0;
+        BKLogSegmentWriter writer = getCachedLogWriter();
+        if (null != writer) {
+            highestTransactionId = Math.max(highestTransactionId, FutureUtils.result(writer.flush()));
+        }
+        return highestTransactionId;
+    }
+
+    /**
+     * Commit data that is already flushed.
+     * <p/>
+     * This API is optional as the writer implements a policy for automatically syncing
+     * the log records in the buffer. The buffered edits can be flushed when the buffer
+     * becomes full or a certain period of time is elapsed.
+     */
+    @Override
+    public long flushAndSync() throws IOException {
+        checkClosedOrInError("flushAndSync");
+
+        LOG.debug("FlushAndSync Started");
+        long highestTransactionId = 0;
+        BKLogSegmentWriter writer = getCachedLogWriter();
+        if (null != writer) {
+            highestTransactionId = Math.max(highestTransactionId, FutureUtils.result(writer.commit()));
+            LOG.debug("FlushAndSync Completed");
+        } else {
+            LOG.debug("FlushAndSync Completed - Nothing to Flush");
+        }
+        return highestTransactionId;
     }
 
     /**

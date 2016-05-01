@@ -24,6 +24,11 @@ public class DryrunLogSegmentMetadataStoreUpdater extends LogSegmentMetadataStor
             public Future<Void> execute() {
                 return Future.Void();
             }
+
+            @Override
+            public void abort(Throwable reason) {
+                // no-op
+            }
         };
     }
 }

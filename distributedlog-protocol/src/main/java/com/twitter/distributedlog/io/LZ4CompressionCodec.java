@@ -32,20 +32,22 @@ public class LZ4CompressionCodec implements CompressionCodec {
     }
 
     @Override
-    public byte[] compress(byte[] data, int length, OpStatsLogger compressionStat) {
+    public byte[] compress(byte[] data, int offset, int length, OpStatsLogger compressionStat) {
         Preconditions.checkNotNull(data);
+        Preconditions.checkArgument(offset >= 0 && offset < data.length);
         Preconditions.checkArgument(length >= 0);
         Preconditions.checkNotNull(compressionStat);
 
         Stopwatch watch = Stopwatch.createStarted();
-        byte[] compressed = compressor.compress(data, 0, length);
+        byte[] compressed = compressor.compress(data, offset, length);
         compressionStat.registerSuccessfulEvent(watch.elapsed(TimeUnit.MICROSECONDS));
         return compressed;
     }
 
     @Override
-    public byte[] decompress(byte[] data, int length, OpStatsLogger decompressionStat) {
+    public byte[] decompress(byte[] data, int offset, int length, OpStatsLogger decompressionStat) {
         Preconditions.checkNotNull(data);
+        Preconditions.checkArgument(offset >= 0 && offset < data.length);
         Preconditions.checkArgument(length >= 0);
         Preconditions.checkNotNull(decompressionStat);
 
@@ -54,7 +56,7 @@ public class LZ4CompressionCodec implements CompressionCodec {
         int outLength = length * 3;
         while (true) {
             try {
-                byte[] decompressed = safeDecompressor.decompress(data, 0, length, outLength);
+                byte[] decompressed = safeDecompressor.decompress(data, offset, length, outLength);
                 decompressionStat.registerSuccessfulEvent(watch.elapsed(TimeUnit.MICROSECONDS));
                 return decompressed;
             } catch (LZ4Exception e) {
@@ -65,14 +67,16 @@ public class LZ4CompressionCodec implements CompressionCodec {
 
     @Override
     // length parameter is ignored here because of the way the fastDecompressor works.
-    public byte[] decompress(byte[] data, int length, int decompressedSize,
+    public byte[] decompress(byte[] data, int offset, int length, int decompressedSize,
                              OpStatsLogger decompressionStat) {
         Preconditions.checkNotNull(data);
+        Preconditions.checkArgument(offset >= 0 && offset < data.length);
+        Preconditions.checkArgument(length >= 0);
         Preconditions.checkArgument(decompressedSize >= 0);
         Preconditions.checkNotNull(decompressionStat);
 
         Stopwatch watch = Stopwatch.createStarted();
-        byte[] decompressed = fastDecompressor.decompress(data, decompressedSize);
+        byte[] decompressed = fastDecompressor.decompress(data, offset, decompressedSize);
         decompressionStat.registerSuccessfulEvent(watch.elapsed(TimeUnit.MICROSECONDS));
         return decompressed;
     }
