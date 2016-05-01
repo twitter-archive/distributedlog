@@ -18,4 +18,5 @@ Documentation
    performance/main
    references/main
    runbook/main
+   tutorials/main
    faq

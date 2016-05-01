@@ -24,6 +24,7 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -76,14 +77,17 @@ public class DistributedLogInputFormat
         final AtomicInteger rcHolder = new AtomicInteger(0);
         final AtomicReference<LedgerMetadata> metadataHolder = new AtomicReference<LedgerMetadata>(null);
         for (LogSegmentMetadata segment : segments) {
+            final CountDownLatch latch = new CountDownLatch(1);
             lm.readLedgerMetadata(segment.getLedgerId(),
                     new BookkeeperInternalCallbacks.GenericCallback<LedgerMetadata>() {
                 @Override
                 public void operationComplete(int rc, LedgerMetadata ledgerMetadata) {
                     metadataHolder.set(ledgerMetadata);
                     rcHolder.set(rc);
+                    latch.countDown();
                 }
             });
+            latch.await();
             if (BKException.Code.OK != rcHolder.get()) {
                 throw new IOException("Faild to get log segment metadata for " + segment + " : "
                         + BKException.getMessage(rcHolder.get()));

@@ -1,16 +1,10 @@
 package com.twitter.distributedlog.mapreduce;
 
-import com.twitter.distributedlog.DLSN;
-import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.LedgerEntryReader;
-import com.twitter.distributedlog.LogRecord;
-import com.twitter.distributedlog.LogRecordWithDLSN;
-import com.twitter.distributedlog.LogSegmentMetadata;
+import com.twitter.distributedlog.*;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.RecordReader;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
@@ -86,14 +80,15 @@ class LogSegmentReader extends RecordReader<DLSN, LogRecordWithDLSN> {
                     lh.readEntries(entryId, entryId);
             if (entries.hasMoreElements()) {
                 LedgerEntry entry = entries.nextElement();
-                reader = new LedgerEntryReader(
-                        streamName,
-                        metadata.getLogSegmentSequenceNumber(),
-                        entry,
-                        LogSegmentMetadata.supportsEnvelopedEntries(
-                                metadata.getVersion()),
-                        metadata.getStartSequenceId(),
-                        NullStatsLogger.INSTANCE);
+                Entry.newBuilder()
+                        .setLogSegmentInfo(metadata.getLogSegmentSequenceNumber(),
+                                metadata.getStartSequenceId())
+                        .setEntryId(entry.getEntryId())
+                        .setEnvelopeEntry(
+                                LogSegmentMetadata.supportsEnvelopedEntries(metadata.getVersion()))
+                        .deserializeRecordSet(true)
+                        .setInputStream(entry.getEntryInputStream())
+                        .buildReader();
             }
             return nextKeyValue();
         } catch (BKException e) {
