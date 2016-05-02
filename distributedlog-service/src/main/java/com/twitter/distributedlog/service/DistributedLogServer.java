@@ -121,6 +121,12 @@ public class DistributedLogServer {
         // server configuration and dynamic configuration
         ServerConfiguration serverConf = new ServerConfiguration();
         serverConf.loadConf(dlConf);
+
+        // overwrite the shard id if it is provided in the args
+        if (shardId.isPresent()) {
+            serverConf.setServerShardId(shardId.get());
+        }
+
         serverConf.validate();
 
         DynamicDistributedLogConfiguration dynDlConf = getServiceDynConf(dlConf);

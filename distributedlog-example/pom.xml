@@ -14,6 +14,17 @@
       <groupId>com.twitter</groupId>
       <artifactId>distributedlog-client</artifactId>
       <version>${project.parent.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.zookeeper</groupId>
+          <artifactId>zookeeper</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.zookeeper</groupId>
+      <artifactId>zookeeper</artifactId>
+      <version>3.5.1-alpha</version>
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>

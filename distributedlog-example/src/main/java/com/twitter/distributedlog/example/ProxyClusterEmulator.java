@@ -19,12 +19,17 @@ public class ProxyClusterEmulator {
     private final String[] args;
 
     public ProxyClusterEmulator(String[] args) throws Exception {
+        DistributedLogConfiguration conf = new DistributedLogConfiguration();
+        conf.setImmediateFlushEnabled(true);
+        conf.setOutputBufferSize(0);
+        conf.setPeriodicFlushFrequencyMilliSeconds(0);
+        conf.setLockTimeout(0);
         this.dlCluster = DistributedLogCluster.newBuilder()
             .numBookies(3)
             .shouldStartZK(true)
             .zkServers("127.0.0.1")
             .shouldStartProxy(false) // We'll start it separately so we can pass args.
-            .dlConf(new DistributedLogConfiguration())
+            .dlConf(conf)
             .build();
         this.args = args;
     }
