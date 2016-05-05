@@ -32,6 +32,7 @@
     <module>distributedlog-basic</module>
     <module>distributedlog-messaging</module>
     <module>distributedlog-kafka</module>
+    <module>distributedlog-group</module>
     <module>distributedlog-mapreduce</module>
   </modules>
   <properties>
