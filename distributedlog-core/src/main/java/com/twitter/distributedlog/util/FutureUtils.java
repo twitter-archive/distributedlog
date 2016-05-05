@@ -340,12 +340,12 @@ public class FutureUtils {
      * @param key the submit key used by the scheduler
      * @return the promise applied with the raise logic
      */
-    public static <T> Promise<T> raiseWithin(final Promise<T> promise,
-                                             final long timeout,
-                                             final TimeUnit unit,
-                                             final Throwable cause,
-                                             final OrderedScheduler scheduler,
-                                             final Object key) {
+    public static <T> Promise<T> within(final Promise<T> promise,
+                                        final long timeout,
+                                        final TimeUnit unit,
+                                        final Throwable cause,
+                                        final OrderedScheduler scheduler,
+                                        final Object key) {
         if (timeout < DistributedLogConstants.FUTURE_TIMEOUT_IMMEDIATE || promise.isDefined()) {
             return promise;
         }
@@ -353,8 +353,8 @@ public class FutureUtils {
             @Override
             public void run() {
                 logger.info("Raise exception", cause);
-                // interrupt the promise
-                promise.raise(cause);
+                // satisfy the promise
+                FutureUtils.setException(promise, cause);
             }
         }, timeout, unit);
         return promise;

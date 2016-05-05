@@ -568,7 +568,7 @@ class ZKSessionLock implements SessionLock {
             @Override
             public LockWaiter apply(final String currentOwner) {
                 final Exception acquireException = new OwnershipAcquireFailedException(lockPath, currentOwner);
-                FutureUtils.raiseWithin(
+                FutureUtils.within(
                         acquireFuture,
                         timeout,
                         unit,
