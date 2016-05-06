@@ -21,13 +21,17 @@ import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.callback.LogSegmentListener;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.NotYetImplementedException;
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.distributedlog.subscription.SubscriptionsStore;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SchedulerUtils;
+import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Future;
+import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.KeeperException;
@@ -58,7 +62,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     private String clientId = DistributedLogConstants.UNKNOWN_CLIENT_ID;
     private final DistributedLogConfiguration conf;
-    private boolean closed = true;
+    private Promise<Void> closePromise;
     private final OrderedScheduler scheduler;
     private boolean ownExecutor;
     private OrderedScheduler lockStateExecutor;
@@ -169,8 +173,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             this.ownReaderBKC = false;
         }
         this.readerBKC = this.readerBKCBuilder.build();
-
-        closed = false;
     }
 
     private synchronized OrderedScheduler getLockStateExecutor(boolean createIfNull) {
@@ -192,7 +194,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     public void checkClosedOrInError(String operation) throws AlreadyClosedException {
-        if (closed) {
+        if (null != closePromise) {
             throw new AlreadyClosedException("Executing " + operation + " on already closed DistributedLogManager");
         }
 
@@ -590,25 +592,51 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * Close the distributed log manager, freeing any resources it may hold.
      */
     @Override
+    public Future<Void> asyncClose() {
+        Promise<Void> closeFuture;
+        synchronized (this) {
+            if (null != closePromise) {
+                return closePromise;
+            }
+            closeFuture = closePromise = new Promise<Void>();
+        }
+
+        // NOTE: the resources {scheduler, writerBKC, readerBKC} are mostly from namespace instance.
+        //       so they are not blocking call except tests.
+        AsyncCloseable resourcesCloseable = new AsyncCloseable() {
+            @Override
+            public Future<Void> asyncClose() {
+                if (ownExecutor) {
+                    SchedulerUtils.shutdownScheduler(scheduler, 5000, TimeUnit.MILLISECONDS);
+                    LOG.info("Stopped BKDL executor service for {}.", name);
+                    SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), 5000, TimeUnit.MILLISECONDS);
+                    LOG.info("Stopped BKDL Lock State Executor for {}.", name);
+                }
+                if (ownWriterBKC) {
+                    writerBKC.close();
+                }
+                if (ownReaderBKC) {
+                    readerBKC.close();
+                }
+                return Future.Void();
+            }
+        };
+
+        Future<Void> closeResult = Utils.closeSequence(null, true,
+                resourcesCloseable,
+                new AsyncCloseable() {
+                    @Override
+                    public Future<Void> asyncClose() {
+                        return BKDistributedLogManager.super.asyncClose();
+                    }
+                });
+        closeResult.proxyTo(closeFuture);
+        return closeFuture;
+    }
+
+    @Override
     public void close() throws IOException {
-        if (ownExecutor) {
-            SchedulerUtils.shutdownScheduler(scheduler, 5000, TimeUnit.MILLISECONDS);
-            LOG.info("Stopped BKDL executor service for {}.", name);
-            SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), 5000, TimeUnit.MILLISECONDS);
-            LOG.info("Stopped BKDL Lock State Executor for {}.", name);
-        }
-        if (ownWriterBKC) {
-            writerBKC.close();
-        }
-        if (ownReaderBKC) {
-            readerBKC.close();
-        }
-        try {
-            super.close();
-        } catch (IOException e) {
-            LOG.warn("Exception while closing distributed log manager {} : ", name, e);
-        }
-        closed = true;
+        FutureUtils.result(asyncClose());
     }
 
     public boolean scheduleTask(Runnable task) {
