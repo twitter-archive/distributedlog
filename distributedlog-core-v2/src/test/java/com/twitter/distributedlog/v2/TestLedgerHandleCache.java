@@ -38,6 +38,7 @@ public class TestLedgerHandleCache {
     protected static DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
     static {
         dlConf.setLockTimeout(10);
+        dlConf.setSchedulerShutdownTimeoutMs(0);
     }
     protected static String zkServers = "127.0.0.1:7000";
     protected static String ledgersPath = "/ledgers";

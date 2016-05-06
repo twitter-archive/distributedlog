@@ -1,7 +1,7 @@
 package com.twitter.distributedlog.v2;
 
 import com.google.common.annotations.VisibleForTesting;
-
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.AlreadyClosedException;
 import com.twitter.distributedlog.AppendOnlyStreamReader;
 import com.twitter.distributedlog.AppendOnlyStreamWriter;
@@ -26,6 +26,7 @@ import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.subscription.SubscriptionStateStore;
 import com.twitter.distributedlog.subscription.SubscriptionsStore;
 import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SchedulerUtils;
@@ -33,7 +34,6 @@ import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZKUtil;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
@@ -44,6 +44,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -66,6 +67,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final OrderedScheduler scheduler;
     private boolean ownExecutor;
     private OrderedScheduler lockStateExecutor;
+    private ExecutorService resourceReleaseExecutor;
     // bookkeeper clients
     // NOTE: The actual bookkeeper client is initialized lazily when it is referenced by
     //       {@link com.twitter.distributedlog.v2.BookKeeperClient#get()}. So it is safe to
@@ -92,11 +94,27 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             BookKeeperClientBuilder readerBKCBuilder,
                             PermitLimiter writeLimiter,
                             StatsLogger statsLogger) throws IOException {
-        this(name, conf, uri,
-             writerZKCBuilder, readerZKCBuilder,
-             zkcForWriterBKC, zkcForReaderBKC, writerBKCBuilder, readerBKCBuilder,
+        this(name,
+             conf,
+             uri,
+             writerZKCBuilder,
+             readerZKCBuilder,
+             zkcForWriterBKC,
+             zkcForReaderBKC,
+             writerBKCBuilder,
+             readerBKCBuilder,
              OrderedScheduler.newBuilder().name("BKDL-" + name).corePoolSize(1).build(),
-             null, null, null, writeLimiter, statsLogger);
+             null, /** lock executor **/
+             new MonitoredScheduledThreadPoolExecutor(
+                     conf.getNumResourceReleaseThreads(),
+                     new ThreadFactoryBuilder().setNameFormat("DL-resource-release-executor-%d")
+                             .setDaemon(conf.getUseDaemonThread()).build(),
+                     statsLogger.scope("factory").scope("resource_release_executor"),
+                     conf.getEnableTaskExecutionStats()),
+             null, /** channel factory **/
+             null, /** request timer **/
+             writeLimiter,
+             statsLogger);
         this.ownExecutor = true;
     }
 
@@ -111,6 +129,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                             BookKeeperClientBuilder readerBKCBuilder,
                             OrderedScheduler scheduler,
                             OrderedScheduler lockStateExecutor,
+                            ExecutorService resourceReleaseExecutor,
                             ClientSocketChannelFactory channelFactory,
                             HashedWheelTimer requestTimer,
                             PermitLimiter writeLimiter,
@@ -119,6 +138,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this.conf = conf;
         this.scheduler = scheduler;
         this.lockStateExecutor = lockStateExecutor;
+        this.resourceReleaseExecutor = resourceReleaseExecutor;
         this.statsLogger = statsLogger;
         this.ownExecutor = false;
         this.writeLimiter = writeLimiter;
@@ -181,6 +201,10 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                     .corePoolSize(1).name("BKDL-LockState").build();
         }
         return lockStateExecutor;
+    }
+
+    ExecutorService getResourceReleaseExecutor() {
+        return resourceReleaseExecutor;
     }
 
     @VisibleForTesting
@@ -606,11 +630,14 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         AsyncCloseable resourcesCloseable = new AsyncCloseable() {
             @Override
             public Future<Void> asyncClose() {
+                int schedTimeout = conf.getSchedulerShutdownTimeoutMs();
                 if (ownExecutor) {
-                    SchedulerUtils.shutdownScheduler(scheduler, 5000, TimeUnit.MILLISECONDS);
+                    SchedulerUtils.shutdownScheduler(scheduler, schedTimeout, TimeUnit.MILLISECONDS);
                     LOG.info("Stopped BKDL executor service for {}.", name);
-                    SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), 5000, TimeUnit.MILLISECONDS);
+                    SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), schedTimeout, TimeUnit.MILLISECONDS);
                     LOG.info("Stopped BKDL Lock State Executor for {}.", name);
+                    SchedulerUtils.shutdownScheduler(resourceReleaseExecutor, schedTimeout, TimeUnit.MILLISECONDS);
+                    LOG.info("Stopped BKDL resource release executor for {}", name);
                 }
                 if (ownWriterBKC) {
                     writerBKC.close();
