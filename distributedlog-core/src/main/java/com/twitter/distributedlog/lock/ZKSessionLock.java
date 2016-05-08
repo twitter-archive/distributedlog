@@ -1286,13 +1286,16 @@ class ZKSessionLock implements SessionLock {
 
         @Override
         public void process(WatchedEvent event) {
-            LOG.info("Received event {} from lock {} at {} : watcher epoch {}, lock epoch {}.",
+            LOG.debug("Received event {} from lock {} at {} : watcher epoch {}, lock epoch {}.",
                     new Object[] { event, lockPath, System.currentTimeMillis(), epoch, ZKSessionLock.this.epoch.get() });
             if (event.getType() == Watcher.Event.EventType.None) {
                 switch (event.getState()) {
                     case SyncConnected:
                         break;
                     case Expired:
+                        LOG.info("Session {} is expired for lock {} at {} : watcher epoch {}, lock epoch {}.",
+                                new Object[] { lockId.getRight(), lockPath, System.currentTimeMillis(),
+                                        epoch, ZKSessionLock.this.epoch.get() });
                         handleSessionExpired(epoch);
                         break;
                     default:
