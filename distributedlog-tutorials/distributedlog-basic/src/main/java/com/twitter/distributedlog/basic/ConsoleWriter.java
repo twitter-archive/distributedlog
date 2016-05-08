@@ -36,41 +36,52 @@ public class ConsoleWriter {
         conf.setImmediateFlushEnabled(true);
         conf.setOutputBufferSize(0);
         conf.setPeriodicFlushFrequencyMilliSeconds(0);
+        conf.setLockTimeout(DistributedLogConstants.LOCK_IMMEDIATE);
         DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
                 .conf(conf)
                 .uri(uri)
+                .regionId(DistributedLogConstants.LOCAL_REGION_ID)
+                .clientId("console-writer")
                 .build();
 
         // open the dlm
         System.out.println("Opening log stream " + streamName);
         DistributedLogManager dlm = namespace.openLog(streamName);
 
-        AsyncLogWriter writer = FutureUtils.result(dlm.openAsyncLogWriter());
+        try {
+            AsyncLogWriter writer = null;
+            try {
+                writer = FutureUtils.result(dlm.openAsyncLogWriter());
 
-        // Setup Terminal
-        Terminal terminal = Terminal.setupTerminal();
-        ConsoleReader reader = new ConsoleReader();
-        String line;
-        while ((line = reader.readLine(PROMPT_MESSAGE)) != null) {
-            writer.write(new LogRecord(System.currentTimeMillis(), line.getBytes(UTF_8)))
-                    .addEventListener(new FutureEventListener<DLSN>() {
-                        @Override
-                        public void onFailure(Throwable cause) {
-                            System.out.println("Encountered error on writing data");
-                            cause.printStackTrace(System.err);
-                            Runtime.getRuntime().exit(0);
-                        }
+                // Setup Terminal
+                Terminal terminal = Terminal.setupTerminal();
+                ConsoleReader reader = new ConsoleReader();
+                String line;
+                while ((line = reader.readLine(PROMPT_MESSAGE)) != null) {
+                    writer.write(new LogRecord(System.currentTimeMillis(), line.getBytes(UTF_8)))
+                            .addEventListener(new FutureEventListener<DLSN>() {
+                                @Override
+                                public void onFailure(Throwable cause) {
+                                    System.out.println("Encountered error on writing data");
+                                    cause.printStackTrace(System.err);
+                                    Runtime.getRuntime().exit(0);
+                                }
 
-                        @Override
-                        public void onSuccess(DLSN value) {
-                            // done
-                        }
-                    });
+                                @Override
+                                public void onSuccess(DLSN value) {
+                                    // done
+                                }
+                            });
+                }
+            } finally {
+                if (null != writer) {
+                    FutureUtils.result(writer.asyncClose(), Duration.apply(5, TimeUnit.SECONDS));
+                }
+            }
+        } finally {
+            dlm.close();
+            namespace.close();
         }
-
-        FutureUtils.result(writer.asyncClose(), Duration.apply(5, TimeUnit.SECONDS));
-        dlm.close();
-        namespace.close();
     }
 
 }
