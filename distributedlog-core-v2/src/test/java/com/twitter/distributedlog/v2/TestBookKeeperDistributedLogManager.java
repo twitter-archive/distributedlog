@@ -71,6 +71,7 @@ public class TestBookKeeperDistributedLogManager {
             new DistributedLogConfiguration();
     static {
         conf.setLockTimeout(10);
+        conf.setSchedulerShutdownTimeoutMs(0);
     }
 
     private ZooKeeper zkc;

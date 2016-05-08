@@ -1,9 +1,11 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.io.AsyncCloseable;
+
 import java.io.Closeable;
 import java.io.IOException;
 
-public interface MetadataAccessor extends Closeable {
+public interface MetadataAccessor extends Closeable, AsyncCloseable {
     /**
      * Get the name of the stream managed by this log manager
      * @return streamName

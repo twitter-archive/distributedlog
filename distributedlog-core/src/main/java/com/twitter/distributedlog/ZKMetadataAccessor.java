@@ -4,12 +4,13 @@ import java.io.IOException;
 import java.net.URI;
 
 import com.google.common.annotations.VisibleForTesting;
-
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
-
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.Utils;
+import com.twitter.util.Future;
+import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
@@ -21,7 +22,7 @@ import org.slf4j.LoggerFactory;
 public class ZKMetadataAccessor implements MetadataAccessor {
     static final Logger LOG = LoggerFactory.getLogger(ZKMetadataAccessor.class);
     protected final String name;
-    protected boolean closed = true;
+    protected Promise<Void> closePromise;
     protected final URI uri;
     // zookeeper clients
     // NOTE: The actual zookeeper client is initialized lazily when it is referenced by
@@ -105,8 +106,6 @@ public class ZKMetadataAccessor implements MetadataAccessor {
             this.ownReaderZKC = false;
         }
         this.readerZKC = this.readerZKCBuilder.build();
-
-        closed = false;
     }
 
     /**
@@ -188,16 +187,19 @@ public class ZKMetadataAccessor implements MetadataAccessor {
 
     /**
      * Close the metadata accessor, freeing any resources it may hold.
-     * @throws IOException
+     * @return future represents the close result.
      */
     @Override
-    public void close() throws IOException {
+    public Future<Void> asyncClose() {
+        Promise<Void> closeFuture;
         synchronized (this) {
-            if (closed) {
-                return;
+            if (null != closePromise) {
+                return closePromise;
             }
-            closed = true;
+            closeFuture = closePromise = new Promise<Void>();
         }
+        // NOTE: ownWriterZKC and ownReaderZKC are mostly used by tests
+        //       the managers created by the namespace - whose zkc will be closed by namespace
         try {
             if (ownWriterZKC) {
                 writerZKC.close();
@@ -208,10 +210,17 @@ public class ZKMetadataAccessor implements MetadataAccessor {
         } catch (Exception e) {
             LOG.warn("Exception while closing distributed log manager", e);
         }
+        FutureUtils.setValue(closeFuture, null);
+        return closeFuture;
+    }
+
+    @Override
+    public void close() throws IOException {
+        FutureUtils.result(asyncClose());
     }
 
     public synchronized void checkClosedOrInError(String operation) throws AlreadyClosedException {
-        if (closed) {
+        if (null != closePromise) {
             throw new AlreadyClosedException("Executing " + operation + " on already closed ZKMetadataAccessor");
         }
     }
