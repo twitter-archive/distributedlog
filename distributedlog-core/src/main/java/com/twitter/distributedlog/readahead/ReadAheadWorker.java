@@ -357,7 +357,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher, As
         if (null == stopPromise) {
             return Future.Void();
         }
-        return FutureUtils.ignore(FutureUtils.raiseWithin(
+        return FutureUtils.ignore(FutureUtils.within(
                 stopPromise,
                 2 * conf.getReadAheadWaitTime(),
                 TimeUnit.MILLISECONDS,

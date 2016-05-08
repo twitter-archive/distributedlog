@@ -26,6 +26,7 @@ public class TestTruncate extends TestDistributedLogBase {
                     .setLockTimeout(10)
                     .setOutputBufferSize(0)
                     .setPeriodicFlushFrequencyMilliSeconds(10)
+                    .setSchedulerShutdownTimeoutMs(0)
                     .setDLLedgerMetadataLayoutVersion(LogSegmentMetadata.LogSegmentMetadataVersion.VERSION_V2_LEDGER_SEQNO.value);
 
     static void updateCompletionTime(ZooKeeperClient zkc,

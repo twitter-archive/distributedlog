@@ -5,9 +5,10 @@ import com.google.common.base.Optional;
 import com.twitter.distributedlog.callback.ReadAheadCallback;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
-import com.twitter.distributedlog.io.Abortables;
-import com.twitter.distributedlog.util.Utils;
+import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
+import com.twitter.util.Promise;
 
 import java.io.IOException;
 import java.util.LinkedList;
@@ -30,7 +31,7 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
     private final int maxNumCachedRecords;
     private final int maxReadAheadWaitTime;
     private ReadAheadCallback readAheadCallback = null;
-    private boolean closed = false;
+    private Promise<Void> closeFuture;
     private final Optional<Long> startTransactionId;
     private final DLSN startDLSN;
     private DLSN lastSeenDLSN = DLSN.InvalidDLSN;
@@ -58,7 +59,7 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
 
     private void scheduleReadNext() {
         synchronized (sharedLock) {
-            if (closed) {
+            if (null != closeFuture) {
                 return;
             }
         }
@@ -207,14 +208,21 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
     }
 
     @Override
-    public void close() throws IOException {
+    public Future<Void> asyncClose() {
+        Promise<Void> closePromise;
         synchronized (sharedLock) {
-            if (closed) {
-                return;
+            if (null != closeFuture) {
+                return closeFuture;
             }
-            closed = true;
+            closeFuture = closePromise = new Promise<Void>();
         }
-        Utils.closeQuietly(reader);
+        reader.asyncClose().proxyTo(closePromise);
+        return closePromise;
+    }
+
+    @Override
+    public void close() throws IOException {
+        FutureUtils.result(asyncClose());
     }
 
     //

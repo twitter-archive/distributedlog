@@ -65,7 +65,7 @@ To dump the items inside a stream:
 
 .. code:: bash
 
-   dlog dlog tool dump -u <DL URI> -s <STREAM NAME> -o <START TXN ID> -l <NUM RECORDS>
+   dlog tool dump -u <DL URI> -s <STREAM NAME> -o <START TXN ID> -l <NUM RECORDS>
 
 Delete a stream
 ~~~~~~~~~~~~~~~
