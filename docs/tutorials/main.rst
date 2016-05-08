@@ -7,6 +7,8 @@ Basic
 - :doc:`basic-2`
 - :doc:`basic-3`
 - :doc:`basic-4`
+- :doc:`basic-5`
+- :doc:`basic-6`
 
 Analytics
 ---------

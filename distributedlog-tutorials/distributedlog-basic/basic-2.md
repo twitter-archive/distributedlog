@@ -94,7 +94,7 @@ Run the example in the following steps:
 
 6.  Run the example to write records to the stream in a console.
     ```
-        // Write Records into Stream `basic-stream-1`
+        // Write Records into Stream `basic-stream-2`
         // runner run com.twitter.distributedlog.basic.ConsoleProxyWriter ${distributedlog-uri} ${stream}
         ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.ConsoleProxyWriter 'inet!127.0.0.1:8000' basic-stream-2
     ```

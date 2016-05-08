@@ -69,6 +69,7 @@ public class AtomicWriter {
                 .addEventListener(new FutureEventListener<DLSN>() {
                     @Override
                     public void onFailure(Throwable cause) {
+                        recordSetWriter.abortTransmit(cause);
                         System.out.println("Encountered error on writing data");
                         cause.printStackTrace(System.err);
                         Runtime.getRuntime().exit(0);
