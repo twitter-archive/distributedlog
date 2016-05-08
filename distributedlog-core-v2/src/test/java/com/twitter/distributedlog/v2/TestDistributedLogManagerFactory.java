@@ -39,6 +39,7 @@ public class TestDistributedLogManagerFactory {
         new DistributedLogConfiguration();
     static {
         conf.setLockTimeout(10);
+        conf.setSchedulerShutdownTimeoutMs(0);
     }
     protected static LocalDLMEmulator bkutil;
     protected static ZooKeeperServerShim zks;

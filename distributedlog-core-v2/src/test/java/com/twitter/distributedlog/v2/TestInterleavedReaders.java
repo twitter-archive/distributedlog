@@ -45,6 +45,7 @@ public class TestInterleavedReaders {
         new DistributedLogConfiguration();
     static {
         conf.setLockTimeout(10);
+        conf.setSchedulerShutdownTimeoutMs(0);
     }
     private ZooKeeper zkc;
     private static LocalDLMEmulator bkutil;
