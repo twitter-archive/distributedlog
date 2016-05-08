@@ -5,7 +5,6 @@ import com.twitter.decider.Decider;
 import com.twitter.decider.DeciderFactory;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.util.Duration;
-
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;

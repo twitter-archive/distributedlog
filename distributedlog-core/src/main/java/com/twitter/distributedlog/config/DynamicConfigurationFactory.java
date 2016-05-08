@@ -3,6 +3,7 @@ package com.twitter.distributedlog.config;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 
+import com.google.common.collect.Lists;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 
 import java.io.File;
@@ -50,10 +51,13 @@ public class DynamicConfigurationFactory {
         try {
             if (!dynamicConfigs.containsKey(configPath)) {
                 File configFile = new File(configPath);
-                PropertiesConfigurationBuilder properties = new PropertiesConfigurationBuilder(configFile.toURI().toURL());
-                DynamicDistributedLogConfiguration dynConf = new DynamicDistributedLogConfiguration(defaultConf);
-                ConfigurationSubscription subscription =
-                        new ConfigurationSubscription(dynConf, properties, executorService, reloadPeriod, reloadUnit);
+                FileConfigurationBuilder properties =
+                        new PropertiesConfigurationBuilder(configFile.toURI().toURL());
+                DynamicDistributedLogConfiguration dynConf =
+                        new DynamicDistributedLogConfiguration(defaultConf);
+                List<FileConfigurationBuilder> fileConfigBuilders = Lists.newArrayList(properties);
+                ConfigurationSubscription subscription = new ConfigurationSubscription(
+                        dynConf, fileConfigBuilders, executorService, reloadPeriod, reloadUnit);
                 subscriptions.add(subscription);
                 dynamicConfigs.put(configPath, dynConf);
                 LOG.info("Loaded dynamic configuration at {}", configPath);
