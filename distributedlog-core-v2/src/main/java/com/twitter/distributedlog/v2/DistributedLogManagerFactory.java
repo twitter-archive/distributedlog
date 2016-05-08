@@ -14,6 +14,7 @@ import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.feature.CoreFeatureKeys;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.DLUtils;
+import com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor;
 import com.twitter.distributedlog.util.OrderedScheduler;
 import com.twitter.distributedlog.util.PermitLimiter;
 import com.twitter.distributedlog.util.SchedulerUtils;
@@ -23,7 +24,6 @@ import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.RetryPolicy;
 import org.apache.zookeeper.KeeperException;
@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -92,6 +93,7 @@ public class DistributedLogManagerFactory {
     private final StatsLogger statsLogger;
     private final OrderedScheduler scheduledExecutorService;
     private final OrderedScheduler lockStateExecutor;
+    private final ExecutorService resourceReleaseExecutor;
     private final ClientSocketChannelFactory channelFactory;
     private final HashedWheelTimer requestTimer;
     // zookeeper clients
@@ -158,6 +160,12 @@ public class DistributedLogManagerFactory {
                 .traceTaskExecution(conf.getEnableTaskExecutionStats())
                 .traceTaskExecutionWarnTimeUs(conf.getTaskExecutionWarnTimeMicros())
                 .build();
+        this.resourceReleaseExecutor = new MonitoredScheduledThreadPoolExecutor(
+                conf.getNumResourceReleaseThreads(),
+                new ThreadFactoryBuilder().setNameFormat("DL-resource-release-executor-%d")
+                        .setDaemon(conf.getUseDaemonThread()).build(),
+                statsLogger.scope("factory").scope("resource_release_executor"),
+                conf.getEnableTaskExecutionStats());
         this.requestTimer = new HashedWheelTimer(
             new ThreadFactoryBuilder().setNameFormat("DLFactoryTimer-%d").build(),
             conf.getTimeoutTimerTickDurationMs(), TimeUnit.MILLISECONDS,
@@ -484,7 +492,8 @@ public class DistributedLogManagerFactory {
             nameOfLogStream, mergedConfiguration, namespace,
             writerZKCBuilderForDL, readerZKCBuilderForDL,
             writerZKCForBK, readerZKCForBK,
-            writerBKCBuilder, readerBKCBuilder, scheduledExecutorService, lockStateExecutor,
+            writerBKCBuilder, readerBKCBuilder,
+            scheduledExecutorService, lockStateExecutor, resourceReleaseExecutor,
             channelFactory, requestTimer, writeLimiter, statsLogger);
 
         distLogMgr.setClientId(clientId);
@@ -764,7 +773,11 @@ public class DistributedLogManagerFactory {
         LOG.info("Release external resources used by channel factory.");
         requestTimer.stop();
         LOG.info("Stopped request timer");
-        SchedulerUtils.shutdownScheduler(lockStateExecutor, 5000, TimeUnit.MILLISECONDS);
+        SchedulerUtils.shutdownScheduler(lockStateExecutor,
+                conf.getSchedulerShutdownTimeoutMs(), TimeUnit.MILLISECONDS);
         LOG.info("Stopped lock state executor");
+        SchedulerUtils.shutdownScheduler(resourceReleaseExecutor,
+                conf.getSchedulerShutdownTimeoutMs(), TimeUnit.MILLISECONDS);
+        LOG.info("Stopped resource release executor");
     }
 }

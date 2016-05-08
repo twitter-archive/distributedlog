@@ -586,6 +586,7 @@ public class TestDistributedLogService extends TestDistributedLogBase {
             new ServerConfiguration(),
             (byte)0,
             checksum,
+            false,
             disabledFeature,
             DefaultAccessControlManager.INSTANCE);
     }

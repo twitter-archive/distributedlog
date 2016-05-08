@@ -141,8 +141,11 @@ public class EnvelopedEntry {
         header.write(out);
         // Compress
         CompressionCodec codec = CompressionUtils.getCompressionCodec(header.compressionType);
-        byte[] compressed = codec.compress(payloadDecompressed.payload, payloadDecompressed.length,
-                                           compressionStat);
+        byte[] compressed = codec.compress(
+                payloadDecompressed.payload,
+                0,
+                payloadDecompressed.length,
+                compressionStat);
         this.payloadCompressed = new Payload(compressed.length, compressed);
         this.compressedEntryBytes.add(payloadCompressed.length);
         this.decompressedEntryBytes.add(payloadDecompressed.length);
@@ -162,8 +165,12 @@ public class EnvelopedEntry {
         payloadCompressed.read(in);
         // Decompress
         CompressionCodec codec = CompressionUtils.getCompressionCodec(header.compressionType);
-        byte[] decompressed = codec.decompress(payloadCompressed.payload, payloadCompressed.length,
-                                               header.decompressedSize, decompressionStat);
+        byte[] decompressed = codec.decompress(
+                payloadCompressed.payload,
+                0,
+                payloadCompressed.length,
+                header.decompressedSize,
+                decompressionStat);
         this.payloadDecompressed = new Payload(decompressed.length, decompressed);
         this.compressedEntryBytes.add(payloadCompressed.length);
         this.decompressedEntryBytes.add(payloadDecompressed.length);

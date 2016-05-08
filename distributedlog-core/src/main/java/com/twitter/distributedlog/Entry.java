@@ -52,11 +52,6 @@ public class Entry {
         return new Builder();
     }
 
-    // Allow 4K overhead for metadata within the max transmission size
-    public static final int MAX_LOGRECORD_SIZE = 1024 * 1024 - 8 * 1024; //1MB - 8KB
-    // Allow 4K overhead for transmission overhead
-    public static final int MAX_LOGRECORDSET_SIZE = 1024 * 1024 - 4 * 1024; //1MB - 4KB
-
     /**
      * Build the record set object.
      */
@@ -66,13 +61,38 @@ public class Entry {
         private long entryId = -1;
         private long startSequenceId = Long.MIN_VALUE;
         private boolean envelopeEntry = true;
+        // input stream
+        private InputStream in = null;
+        // or bytes array
         private byte[] data = null;
         private int offset = -1;
         private int length = -1;
         private Optional<Long> txidToSkipTo = Optional.absent();
         private Optional<DLSN> dlsnToSkipTo = Optional.absent();
+        private boolean deserializeRecordSet = true;
 
         private Builder() {}
+
+        /**
+         * Reset the builder.
+         *
+         * @return builder
+         */
+        public Builder reset() {
+            logSegmentSequenceNumber = -1;
+            entryId = -1;
+            startSequenceId = Long.MIN_VALUE;
+            envelopeEntry = true;
+            // input stream
+            in = null;
+            // or bytes array
+            data = null;
+            offset = -1;
+            length = -1;
+            txidToSkipTo = Optional.absent();
+            dlsnToSkipTo = Optional.absent();
+            return this;
+        }
 
         /**
          * Set the segment info of the log segment that this record
@@ -133,6 +153,18 @@ public class Entry {
         }
 
         /**
+         * Set the input stream of the serialized bytes data of this record set.
+         *
+         * @param in
+         *          input stream
+         * @return builder
+         */
+        public Builder setInputStream(InputStream in) {
+            this.in = in;
+            return this;
+        }
+
+        /**
          * Set the record set starts from <code>dlsn</code>.
          *
          * @param dlsn
@@ -156,6 +188,18 @@ public class Entry {
             return this;
         }
 
+        /**
+         * Enable/disable deserialize record set.
+         *
+         * @param enabled
+         *          flag to enable/disable dserialize record set.
+         * @return builder
+         */
+        public Builder deserializeRecordSet(boolean enabled) {
+            this.deserializeRecordSet = enabled;
+            return this;
+        }
+
         public Entry build() {
             Preconditions.checkNotNull(data, "Serialized data isn't provided");
             Preconditions.checkArgument(offset >= 0 && length >= 0
@@ -166,11 +210,34 @@ public class Entry {
                     entryId,
                     startSequenceId,
                     envelopeEntry,
+                    deserializeRecordSet,
                     data,
                     offset,
                     length,
                     txidToSkipTo,
                     dlsnToSkipTo);
+        }
+
+        public Entry.Reader buildReader() throws IOException {
+            Preconditions.checkArgument(data != null || in != null,
+                    "Serialized data or input stream isn't provided");
+            InputStream in;
+            if (null != this.in) {
+                in = this.in;
+            } else {
+                Preconditions.checkArgument(offset >= 0 && length >= 0
+                                && (offset + length) <= data.length,
+                        "Invalid offset or length of serialized data");
+                in = new ByteArrayInputStream(data, offset, length);
+            }
+            return new EnvelopedEntryReader(
+                    logSegmentSequenceNumber,
+                    entryId,
+                    startSequenceId,
+                    in,
+                    envelopeEntry,
+                    deserializeRecordSet,
+                    NullStatsLogger.INSTANCE);
         }
 
     }
@@ -179,6 +246,7 @@ public class Entry {
     private final long entryId;
     private final long startSequenceId;
     private final boolean envelopedEntry;
+    private final boolean deserializeRecordSet;
     private final byte[] data;
     private final int offset;
     private final int length;
@@ -189,6 +257,7 @@ public class Entry {
                   long entryId,
                   long startSequenceId,
                   boolean envelopedEntry,
+                  boolean deserializeRecordSet,
                   byte[] data,
                   int offset,
                   int length,
@@ -198,6 +267,7 @@ public class Entry {
         this.entryId = entryId;
         this.startSequenceId = startSequenceId;
         this.envelopedEntry = envelopedEntry;
+        this.deserializeRecordSet = deserializeRecordSet;
         this.data = data;
         this.offset = offset;
         this.length = length;
@@ -228,6 +298,7 @@ public class Entry {
                 startSequenceId,
                 in,
                 envelopedEntry,
+                deserializeRecordSet,
                 NullStatsLogger.INSTANCE);
         if (txidToSkipTo.isPresent()) {
             reader.skipTo(txidToSkipTo.get());

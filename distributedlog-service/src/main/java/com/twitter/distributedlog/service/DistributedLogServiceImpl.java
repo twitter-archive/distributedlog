@@ -372,7 +372,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
     @Override
     public Future<WriteResponse> write(final String stream, ByteBuffer data) {
         receivedRecordCounter.inc();
-        return doWrite(stream, data, null /* checksum */);
+        return doWrite(stream, data, null /* checksum */, false);
     }
 
     @Override
@@ -392,7 +392,7 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     @Override
     public Future<WriteResponse> writeWithContext(final String stream, ByteBuffer data, WriteContext ctx) {
-        return doWrite(stream, data, getChecksum(ctx));
+        return doWrite(stream, data, getChecksum(ctx), ctx.isIsRecordSet());
     }
 
     @Override
@@ -463,10 +463,13 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
         return Future.Void();
     }
 
-    private Future<WriteResponse> doWrite(final String name, ByteBuffer data, Long checksum) {
+    private Future<WriteResponse> doWrite(final String name,
+                                          ByteBuffer data,
+                                          Long checksum,
+                                          boolean isRecordSet) {
         writePendingStat.inc();
         receivedRecordCounter.inc();
-        WriteOp op = newWriteOp(name, data, checksum);
+        WriteOp op = newWriteOp(name, data, checksum, isRecordSet);
         executeStreamOp(op);
         return op.result().ensure(new Function0<BoxedUnit>() {
             public BoxedUnit apply() {
@@ -648,8 +651,15 @@ public class DistributedLogServiceImpl implements DistributedLogService.ServiceI
 
     @VisibleForTesting
     WriteOp newWriteOp(String stream, ByteBuffer data, Long checksum) {
+        return newWriteOp(stream, data, checksum, false);
+    }
+
+    WriteOp newWriteOp(String stream,
+                       ByteBuffer data,
+                       Long checksum,
+                       boolean isRecordSet) {
         return new WriteOp(stream, data, statsLogger, perStreamStatsLogger, serverConfig, dlsnVersion,
-            checksum, featureChecksumDisabled, accessControlManager);
+            checksum, isRecordSet, featureChecksumDisabled, accessControlManager);
     }
 
     @VisibleForTesting

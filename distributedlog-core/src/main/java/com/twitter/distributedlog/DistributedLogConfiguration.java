@@ -163,6 +163,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_NUM_WORKER_THREADS = "numWorkerThreads";
     public static final String BKDL_NUM_READAHEAD_WORKER_THREADS = "numReadAheadWorkerThreads";
     public static final String BKDL_NUM_LOCKSTATE_THREADS = "numLockStateThreads";
+    public static final String BKDL_NUM_RESOURCE_RELEASE_THREADS = "numResourceReleaseThreads";
     public static final String BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS = "schedulerShutdownTimeoutMs";
     public static final int BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS_DEFAULT = 5000;
     public static final String BKDL_USE_DAEMON_THREAD = "useDaemonThread";
@@ -179,6 +180,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_OLD = "first-logsegment-sequence-number";
     public static final long BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER_DEFAULT =
             DistributedLogConstants.FIRST_LOGSEGMENT_SEQNO;
+    public static final String BKDL_LOGSEGMENT_SEQUENCE_NUMBER_VALIDATION_ENABLED = "logSegmentSequenceNumberValidationEnabled";
+    public static final boolean BKDL_LOGSEGMENT_SEQUENCE_NUMBER_VALIDATION_ENABLED_DEFAULT = true;
     public static final String BKDL_ENABLE_RECORD_COUNTS = "enableRecordCounts";
     public static final boolean BKDL_ENABLE_RECORD_COUNTS_DEFAULT = true;
     public static final String BKDL_MAXID_SANITYCHECK = "maxIdSanityCheck";
@@ -281,6 +284,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_READLAC_OPTION_DEFAULT = 3; //BKLogPartitionReadHandler.ReadLACOption.READENTRYPIGGYBACK_SEQUENTIAL.value
     public static final String BKDL_READLACLONGPOLL_TIMEOUT = "readLACLongPollTimeout";
     public static final int BKDL_READLACLONGPOLL_TIMEOUT_DEFAULT = 1000;
+    public static final String BKDL_DESERIALIZE_RECORDSET_ON_READS = "deserializeRecordSetOnReads";
+    public static final boolean BKDL_DESERIALIZE_RECORDSET_ON_READS_DEFAULT = true;
 
     // Idle reader settings
     public static final String BKDL_READER_IDLE_WARN_THRESHOLD_MILLIS = "readerIdleWarnThresholdMillis";
@@ -1300,6 +1305,34 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     }
 
     /**
+     * Get the number of resource release threads used by distributedlog namespace.
+     * By default it is 0 - the thread will be created dynamically by a executor service.
+     * The executor service is an unbounded pool. Application can use `total_tasks - completed_tasks`
+     * on monitoring the number of threads that are used for releasing resources.
+     * <p>
+     * The setting is only applied for v2 implementation.
+     *
+     * @see {@link com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor} for more stats
+     * @return number of resource release threads used by distributedlog namespace.
+     */
+    public int getNumResourceReleaseThreads() {
+        return getInt(BKDL_NUM_RESOURCE_RELEASE_THREADS, 0);
+    }
+
+    /**
+     * Set the number of resource release threads used by distributedlog manager factory.
+     *
+     * @param numResourceReleaseThreads
+     *          number of resource release threads used by distributedlog manager factory.
+     * @return configuration
+     * @see #getNumResourceReleaseThreads()
+     */
+    public DistributedLogConfiguration setNumResourceReleaseThreads(int numResourceReleaseThreads) {
+        setProperty(BKDL_NUM_RESOURCE_RELEASE_THREADS, numResourceReleaseThreads);
+        return this;
+    }
+
+    /**
      * Get timeout for shutting down schedulers in dl manager, in milliseconds.
      * By default, it is 5 seconds.
      *
@@ -1437,6 +1470,26 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
             throw new IllegalArgumentException("Incorrect value for ledger sequence number");
         }
         setProperty(BKDL_FIRST_LOGSEGMENT_SEQUENCE_NUMBER, firstLogSegmentSequenceNumber);
+        return this;
+    }
+
+    /**
+     * Whether log segment sequence number validation is enabled?
+     *
+     * @return true if the log segment sequence number validation is enabled, otherwise false.
+     */
+    public boolean isLogSegmentSequenceNumberValidationEnabled() {
+        return this.getBoolean(BKDL_LOGSEGMENT_SEQUENCE_NUMBER_VALIDATION_ENABLED,
+                BKDL_LOGSEGMENT_SEQUENCE_NUMBER_VALIDATION_ENABLED_DEFAULT);
+    }
+
+    /**
+     * Whether log segment sequence number validation is enabled?
+     *
+     * @return true if the log segment sequence number validation is enabled, otherwise false.
+     */
+    public DistributedLogConfiguration setLogSegmentSequenceNumberValidationEnabled(boolean enabled) {
+        setProperty(BKDL_LOGSEGMENT_SEQUENCE_NUMBER_VALIDATION_ENABLED, enabled);
         return this;
     }
 
@@ -2231,6 +2284,27 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setReadLACLongPollTimeout(int readAheadLongPollTimeout) {
         setProperty(BKDL_READLACLONGPOLL_TIMEOUT, readAheadLongPollTimeout);
+        return this;
+    }
+
+    /**
+     * Get the flag whether to deserialize record set on reads.
+     *
+     * @return true if it should deserialize, otherwise false.
+     */
+    public boolean getDeserializeRecordSetOnReads() {
+        return getBoolean(BKDL_DESERIALIZE_RECORDSET_ON_READS, BKDL_DESERIALIZE_RECORDSET_ON_READS_DEFAULT);
+    }
+
+    /**
+     * Enable or disable deserialize recordset on reads.
+     *
+     * @param enabled
+     *          flag whether to deserialize recordset
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setDeserializeRecordSetOnReads(boolean enabled) {
+        setProperty(BKDL_DESERIALIZE_RECORDSET_ON_READS, enabled);
         return this;
     }
 

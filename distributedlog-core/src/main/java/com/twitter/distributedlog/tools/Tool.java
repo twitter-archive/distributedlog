@@ -111,7 +111,7 @@ public abstract class Tool {
             String cmdName = args[0];
             Command command = commands.get(cmdName);
             if (null == command) {
-                println("Unknown command " + cmdName);
+                System.err.println("Unknown command " + cmdName);
                 printToolUsage();
                 return -1;
             }
@@ -193,7 +193,7 @@ public abstract class Tool {
         String cmdName = args[0];
         Command cmd = commands.get(cmdName);
         if (null == cmd) {
-            println("ERROR: Unknown command " + cmdName);
+            System.err.println("ERROR: Unknown command " + cmdName);
             printToolUsage();
             return -1;
         }

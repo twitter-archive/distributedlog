@@ -18,6 +18,8 @@ public interface CompressionCodec {
      * Return the compressed data as a byte array.
      * @param data
      *          The data to be compressed
+     * @param offset
+     *          The offset in the bytes of data to compress
      * @param length
      *          The number of bytes of data to compress
      * @param compressionStat
@@ -26,12 +28,14 @@ public interface CompressionCodec {
      *          The compressed data
      *          The returned byte array is sized to the length of the compressed data
      */
-    byte[] compress(byte[] data, int length, OpStatsLogger compressionStat);
+    byte[] compress(byte[] data, int offset, int length, OpStatsLogger compressionStat);
 
     /**
      * Return the decompressed data as a byte array.
      * @param data
      *          The data to be decompressed
+     * @param offset
+     *          The offset in the bytes of data to decompress
      * @param length
      *          The number of bytes of data to decompress
      * @param decompressionStat
@@ -39,12 +43,14 @@ public interface CompressionCodec {
      * @return
      *          The decompressed data
      */
-    byte[] decompress(byte[] data, int length, OpStatsLogger decompressionStat);
+    byte[] decompress(byte[] data, int offset, int length, OpStatsLogger decompressionStat);
 
     /**
      * Return the decompressed data as a byte array.
      * @param data
      *          The data to the decompressed
+     * @param offset
+     *          The offset in the bytes of data to decompress
      * @param length
      *          The number of bytes of data to decompress
      * @param decompressedSize
@@ -54,5 +60,5 @@ public interface CompressionCodec {
      * @return
      *          The decompressed data
      */
-    byte[] decompress(byte[] data, int length, int decompressedSize, OpStatsLogger decompressionStat);
+    byte[] decompress(byte[] data, int offset, int length, int decompressedSize, OpStatsLogger decompressionStat);
 }

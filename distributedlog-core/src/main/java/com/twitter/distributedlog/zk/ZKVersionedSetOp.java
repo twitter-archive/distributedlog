@@ -7,6 +7,8 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Op;
 import org.apache.zookeeper.OpResult;
 
+import javax.annotation.Nullable;
+
 /**
  * ZooKeeper Operation that plays with {@link org.apache.bookkeeper.versioning.Version}
  */
@@ -27,14 +29,19 @@ public class ZKVersionedSetOp extends ZKOp {
     }
 
     @Override
-    protected void abortOpResult(Throwable t, OpResult opResult) {
-        assert(opResult instanceof OpResult.ErrorResult);
-        OpResult.ErrorResult errorResult = (OpResult.ErrorResult) opResult;
+    protected void abortOpResult(Throwable t,
+                                 @Nullable OpResult opResult) {
         Throwable cause;
-        if (KeeperException.Code.OK.intValue() == errorResult.getErr()) {
+        if (null == opResult) {
             cause = t;
         } else {
-            cause = KeeperException.create(KeeperException.Code.get(errorResult.getErr()));
+            assert (opResult instanceof OpResult.ErrorResult);
+            OpResult.ErrorResult errorResult = (OpResult.ErrorResult) opResult;
+            if (KeeperException.Code.OK.intValue() == errorResult.getErr()) {
+                cause = t;
+            } else {
+                cause = KeeperException.create(KeeperException.Code.get(errorResult.getErr()));
+            }
         }
         listener.onAbort(cause);
     }

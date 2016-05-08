@@ -75,8 +75,8 @@ import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
 
 import static com.google.common.base.Charsets.UTF_8;
-import static com.twitter.distributedlog.Entry.MAX_LOGRECORD_SIZE;
-import static com.twitter.distributedlog.Entry.MAX_LOGRECORDSET_SIZE;
+import static com.twitter.distributedlog.LogRecord.MAX_LOGRECORD_SIZE;
+import static com.twitter.distributedlog.LogRecord.MAX_LOGRECORDSET_SIZE;
 
 /**
  * BookKeeper Based Log Segment Writer.
@@ -705,8 +705,18 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         // incremented or not.
         Future<DLSN> future = null;
         try {
+            // increment the position for the record to write
+            // if the record is failed to write, it would be decremented.
             positionWithinLogSegment++;
+            int numRecords = 1;
+            if (record.isRecordSet()) {
+                numRecords = LogRecordSet.numRecords(record);
+            }
             future = writeInternal(record);
+            // after the record (record set) is written, the position should be
+            // moved for {numRecords}, but since we already moved the record by 1
+            // so advance the position for other {numRecords - 1}.
+            positionWithinLogSegment += (numRecords - 1);
         } catch (IOException ex) {
             writeLimiter.release();
             pendingWrites.dec();

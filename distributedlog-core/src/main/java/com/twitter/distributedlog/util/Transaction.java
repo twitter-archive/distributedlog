@@ -61,10 +61,20 @@ public interface Transaction<OpResult> {
     /**
      * Execute the current transaction. If the transaction succeed, all operations will be
      * committed (via {@link com.twitter.distributedlog.util.Transaction.Op#commit(Object)}.
-     * Otherwise, all operations will be aborted (via {@link com.twitter.distributedlog.util.Transaction.Op#abort(Object)}.
+     * Otherwise, all operations will be aborted (via {@link Op#abort(Throwable, Object)}).
      *
      * @return future representing the result of transaction execution.
      */
     Future<Void> execute();
+
+    /**
+     * Abort current transaction. If this is called and the transaction haven't been executed by
+     * {@link #execute()}, it would abort all operations. If the transaction has been executed,
+     * the behavior is left up to implementation - if transaction is cancellable, the {@link #abort(Throwable)}
+     * could attempt to cancel it.
+     *
+     * @param reason reason to abort the transaction
+     */
+    void abort(Throwable reason);
 
 }

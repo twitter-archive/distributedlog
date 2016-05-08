@@ -4,6 +4,8 @@ import com.twitter.distributedlog.util.Transaction;
 import org.apache.zookeeper.Op;
 import org.apache.zookeeper.OpResult;
 
+import javax.annotation.Nullable;
+
 /**
  * ZooKeeper Transaction Operation
  */
@@ -33,5 +35,12 @@ public abstract class ZKOp implements Transaction.Op<Object> {
         abortOpResult(t, (OpResult) r);
     }
 
-    protected abstract void abortOpResult(Throwable t, OpResult opResult);
+    /**
+     * Abort the operation with exception <i>t</i> and result <i>opResult</i>.
+     *
+     * @param t the reason to abort the operation
+     * @param opResult the result of operation
+     */
+    protected abstract void abortOpResult(Throwable t,
+                                          @Nullable OpResult opResult);
 }

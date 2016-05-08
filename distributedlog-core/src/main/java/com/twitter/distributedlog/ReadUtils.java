@@ -310,14 +310,16 @@ public class ReadUtils {
             LedgerEntry entry,
             ScanContext context,
             LogRecordSelector selector) throws IOException {
-        LogRecord.Reader reader =
-                new LedgerEntryReader(streamName, logSegmentSeqNo, entry,
-                        metadata.getEnvelopeEntries(), metadata.getStartSequenceId(),
-                        NullStatsLogger.INSTANCE);
-        LogRecordWithDLSN nextRecord = reader.readOp();
+        Entry.Reader reader = Entry.newBuilder()
+                .setLogSegmentInfo(logSegmentSeqNo, metadata.getStartSequenceId())
+                .setEntryId(entry.getEntryId())
+                .setEnvelopeEntry(metadata.getEnvelopeEntries())
+                .setInputStream(entry.getEntryInputStream())
+                .buildReader();
+        LogRecordWithDLSN nextRecord = reader.nextRecord();
         while (nextRecord != null) {
             LogRecordWithDLSN record = nextRecord;
-            nextRecord = reader.readOp();
+            nextRecord = reader.nextRecord();
             context.numRecordsScanned.incrementAndGet();
             if (!context.includeControl && record.isControl()) {
                 continue;

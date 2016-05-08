@@ -15,6 +15,7 @@ import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.impl.ZKLogSegmentMetadataStore;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
+import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.distributedlog.lock.SessionLockFactory;
 import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.distributedlog.lock.ZKSessionLockFactory;
@@ -55,6 +56,7 @@ import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Function1;
 import scala.runtime.AbstractFunction0;
 import scala.runtime.AbstractFunction1;
 import scala.runtime.BoxedUnit;
@@ -121,7 +123,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     private final String streamIdentifier;
     private final DistributedLogConfiguration conf;
     private final DynamicDistributedLogConfiguration dynConf;
-    private boolean closed = true;
+    private Promise<Void> closePromise;
     private final OrderedScheduler scheduler;
     private final OrderedScheduler readAheadScheduler;
     private boolean ownExecutor;
@@ -295,7 +297,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         this.statsLogger = statsLogger;
         this.perLogStatsLogger = BroadCastStatsLogger.masterslave(perLogStatsLogger, statsLogger);
         this.ownExecutor = false;
-        this.pendingReaders = new PendingReaders();
+        this.pendingReaders = new PendingReaders(scheduler);
         this.regionId = regionId;
         this.clientId = clientId;
         this.streamIdentifier = conf.getUnpartitionedStreamName();
@@ -366,8 +368,6 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
             this.ownReaderBKC = false;
         }
         this.readerBKC = this.readerBKCBuilder.build();
-
-        closed = false;
 
         // Feature Provider
         this.featureProvider = featureProvider;
@@ -465,7 +465,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     public void checkClosedOrInError(String operation) throws AlreadyClosedException {
-        if (closed) {
+        if (null != closePromise) {
             throw new AlreadyClosedException("Executing " + operation + " on already closed DistributedLogManager");
         }
 
@@ -490,12 +490,18 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
 
     synchronized BKLogReadHandler createReadHandler(Optional<String> subscriberId,
                                                     boolean isHandleForReading) {
-        return createReadHandler(subscriberId, getLockStateExecutor(true), null, isHandleForReading);
+        return createReadHandler(
+                subscriberId,
+                getLockStateExecutor(true),
+                null,
+                true, /* deserialize record set */
+                isHandleForReading);
     }
 
     synchronized BKLogReadHandler createReadHandler(Optional<String> subscriberId,
                                                     OrderedScheduler lockExecutor,
                                                     AsyncNotification notification,
+                                                    boolean deserializeRecordSet,
                                                     boolean isHandleForReading) {
         ZKLogMetadataForReader logMetadata = ZKLogMetadataForReader.of(uri, name, streamIdentifier);
         return new BKLogReadHandler(
@@ -507,7 +513,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 readerBKCBuilder,
                 readerMetadataStore,
                 scheduler,
-                lockStateExecutor,
+                lockExecutor,
                 readAheadScheduler,
                 alertStatsLogger,
                 readAheadExceptionsLogger,
@@ -515,7 +521,8 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 perLogStatsLogger,
                 clientId,
                 notification,
-                isHandleForReading);
+                isHandleForReading,
+                deserializeRecordSet);
     }
 
     // Create Ledger Allocator
@@ -941,6 +948,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 fromDLSN,
                 subscriberId,
                 false,
+                dynConf.getDeserializeRecordSetOnReads(),
                 statsLogger);
         return Future.value(reader);
     }
@@ -979,6 +987,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 fromDLSN.isPresent() ? fromDLSN.get() : DLSN.InitialDLSN,
                 subscriberId,
                 false,
+                dynConf.getDeserializeRecordSetOnReads(),
                 statsLogger);
         pendingReaders.add(reader);
         final Future<Void> lockFuture = reader.lockStream();
@@ -1065,6 +1074,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 fromDLSN,
                 subscriberId,
                 true,
+                dynConf.getDeserializeRecordSetOnReads(),
                 statsLogger);
         return new BKSyncLogReaderDLSN(conf, asyncReader, scheduler, fromTxnId);
     }
@@ -1271,23 +1281,33 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
         }
     }
 
-    static class PendingReaders {
-        Set<AsyncLogReader> readers = new HashSet<AsyncLogReader>();
+    static class PendingReaders implements AsyncCloseable {
+
+        final ExecutorService executorService;
+        final Set<AsyncLogReader> readers = new HashSet<AsyncLogReader>();
+
+        PendingReaders(ExecutorService executorService) {
+            this.executorService = executorService;
+        }
+
         public synchronized void remove(AsyncLogReader reader) {
             readers.remove(reader);
         }
+
         public synchronized void add(AsyncLogReader reader) {
             readers.add(reader);
         }
-        public synchronized void close() {
-            for (AsyncLogReader reader : readers) {
-                try {
-                    Utils.close(reader);
-                } catch (Exception ex) {
-                    LOG.error("failed to close pending reader");
-                }
-            }
-            readers.clear();
+
+        @Override
+        public Future<Void> asyncClose() {
+            return Utils.closeSequence(executorService, true, readers.toArray(new AsyncLogReader[readers.size()]))
+                    .onSuccess(new AbstractFunction1<Void, BoxedUnit>() {
+                        @Override
+                        public BoxedUnit apply(Void value) {
+                            readers.clear();
+                            return BoxedUnit.UNIT;
+                        }
+                    });
         }
     };
 
@@ -1295,43 +1315,64 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
      * Close the distributed log manager, freeing any resources it may hold.
      */
     @Override
-    public void close() throws IOException {
+    public Future<Void> asyncClose() {
+        Promise<Void> closeFuture;
+        BKLogReadHandler readHandlerToClose;
         synchronized (this) {
-            if (null != readHandlerForListener) {
-                Utils.closeQuietly(readHandlerForListener);
+            if (null != closePromise) {
+                return closePromise;
             }
+            closeFuture = closePromise = new Promise<Void>();
+            readHandlerToClose = readHandlerForListener;
         }
 
-        // Remove and close all pending readers.
-        pendingReaders.close();
+        // NOTE: the resources {scheduler, writerBKC, readerBKC} are mostly from namespace instance.
+        //       so they are not blocking call except tests.
+        AsyncCloseable resourcesCloseable = new AsyncCloseable() {
+            @Override
+            public Future<Void> asyncClose() {
+                int schedTimeout = conf.getSchedulerShutdownTimeoutMs();
 
-        int schedTimeout = conf.getSchedulerShutdownTimeoutMs();
+                // Clean up executor state.
+                if (ownExecutor) {
+                    SchedulerUtils.shutdownScheduler(scheduler, schedTimeout, TimeUnit.MILLISECONDS);
+                    LOG.info("Stopped BKDL executor service for {}.", name);
 
-        // Clean up executor state.
-        if (ownExecutor) {
-            SchedulerUtils.shutdownScheduler(scheduler, schedTimeout, TimeUnit.MILLISECONDS);
-            LOG.info("Stopped BKDL executor service for {}.", name);
+                    if (scheduler != readAheadScheduler) {
+                        SchedulerUtils.shutdownScheduler(readAheadScheduler, schedTimeout, TimeUnit.MILLISECONDS);
+                        LOG.info("Stopped BKDL ReadAhead Executor Service for {}.", name);
+                    }
 
-            if (scheduler != readAheadScheduler) {
-                SchedulerUtils.shutdownScheduler(readAheadScheduler, schedTimeout, TimeUnit.MILLISECONDS);
-                LOG.info("Stopped BKDL ReadAhead Executor Service for {}.", name);
+                    SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), schedTimeout, TimeUnit.MILLISECONDS);
+                    LOG.info("Stopped BKDL Lock State Executor for {}.", name);
+                }
+                if (ownWriterBKC) {
+                    writerBKC.close();
+                }
+                if (ownReaderBKC) {
+                    readerBKC.close();
+                }
+                return Future.Void();
             }
+        };
 
-            SchedulerUtils.shutdownScheduler(getLockStateExecutor(false), schedTimeout, TimeUnit.MILLISECONDS);
-            LOG.info("Stopped BKDL Lock State Executor for {}.", name);
-        }
-        if (ownWriterBKC) {
-            writerBKC.close();
-        }
-        if (ownReaderBKC) {
-            readerBKC.close();
-        }
-        try {
-            super.close();
-        } catch (IOException e) {
-            LOG.warn("Exception while closing distributed log manager {} : ", name, e);
-        }
-        closed = true;
+        Future<Void> closeResult = Utils.closeSequence(null, true,
+                readHandlerToClose,
+                pendingReaders,
+                resourcesCloseable,
+                new AsyncCloseable() {
+                    @Override
+                    public Future<Void> asyncClose() {
+                        return BKDistributedLogManager.super.asyncClose();
+                    }
+                });
+        closeResult.proxyTo(closeFuture);
+        return closeFuture;
+    }
+
+    @Override
+    public void close() throws IOException {
+        FutureUtils.result(asyncClose());
     }
 
     public boolean scheduleTask(Runnable task) {

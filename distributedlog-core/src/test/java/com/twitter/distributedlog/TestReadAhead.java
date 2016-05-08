@@ -30,6 +30,7 @@ public class TestReadAhead extends TestDistributedLogBase {
         confLocal.setReadAheadWaitTime(500);
         confLocal.setReadAheadNoSuchLedgerExceptionOnReadLACErrorThresholdMillis(2000);
         confLocal.setDLLedgerMetadataLayoutVersion(LogSegmentMetadataVersion.VERSION_V4_ENVELOPED_ENTRIES.value);
+        confLocal.setLogSegmentSequenceNumberValidationEnabled(false);
 
         DistributedLogManager dlm = createNewDLM(confLocal, name);
         DLMTestUtil.injectLogSegmentWithGivenLogSegmentSeqNo(dlm, confLocal, 1L, 1L, false, 0, false);

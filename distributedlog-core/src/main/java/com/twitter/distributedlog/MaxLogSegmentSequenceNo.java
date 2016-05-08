@@ -56,8 +56,10 @@ class MaxLogSegmentSequenceNo {
     }
 
     synchronized MaxLogSegmentSequenceNo update(ZkVersion version, long logSegmentSeqNo) {
-        this.version = version;
-        this.maxSeqNo = logSegmentSeqNo;
+        if (version.compare(this.version) == Version.Occurred.AFTER) {
+            this.version = version;
+            this.maxSeqNo = logSegmentSeqNo;
+        }
         return this;
     }
 

@@ -17,6 +17,10 @@ import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.EndOfStreamException;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
+import com.twitter.distributedlog.util.FutureUtils;
+import com.twitter.util.Function;
+import com.twitter.util.Future;
+import com.twitter.util.Promise;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.commons.lang3.tuple.Pair;
@@ -24,6 +28,8 @@ import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Function1;
+import scala.runtime.BoxedUnit;
 
 import static com.twitter.distributedlog.DLSNUtil.*;
 
@@ -107,6 +113,44 @@ public class BKContinuousLogReader implements LogReader, ZooKeeperClient.ZooKeep
             bkLedgerManager.unregister(sessionExpireWatcher);
             bkLedgerManager.close();
         }
+    }
+
+    /**
+     * The v2 is implemented in synchronous way. so we have to use a executor to close the reader to
+     * adopt to an asynchronous interface.
+     * <p>Interrupting the <i>future</i> by raising exception `Future.raise(cause)` will interrupt
+     * the thread that is closing the reader.
+     *
+     * @return future represents the close result.
+     */
+    @Override
+    public Future<Void> asyncClose() {
+        final Promise<Void> promise = new Promise<Void>();
+        final java.util.concurrent.Future<?> closeFuture = bkDistributedLogManager.getResourceReleaseExecutor()
+                .submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    close();
+                } catch (IOException ioe) {
+                    // the #close() implementation doesn't throw IOException. so if there is IOException caught here,
+                    // it is unexpected and might mean that #close() stops somewhere hence not release all the resources.
+                    LOG.warn("unexpected exception on closing reader {} : {}",
+                            bkDistributedLogManager.getStreamName(), ioe.getMessage());
+                } finally {
+                    FutureUtils.setValue(promise, null);
+                }
+            }
+        });
+        promise.setInterruptHandler(new Function<Throwable, BoxedUnit>() {
+            @Override
+            public BoxedUnit apply(Throwable t) {
+                // if the promise is interrupted, cancel and interrupt the actual #close()
+                closeFuture.cancel(true);
+                return BoxedUnit.UNIT;
+            }
+        });
+        return promise;
     }
 
     /**

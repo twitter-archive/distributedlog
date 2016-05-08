@@ -11,6 +11,7 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.OpResult;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * ZooKeeper Transaction
@@ -21,6 +22,7 @@ public class ZKTransaction implements Transaction<Object>, AsyncCallback.MultiCa
     private final List<ZKOp> ops;
     private final List<org.apache.zookeeper.Op> zkOps;
     private final Promise<Void> result;
+    private final AtomicBoolean done = new AtomicBoolean(false);
 
     public ZKTransaction(ZooKeeperClient zkc) {
         this.zkc = zkc;
@@ -31,6 +33,9 @@ public class ZKTransaction implements Transaction<Object>, AsyncCallback.MultiCa
 
     @Override
     public void addOp(Op<Object> operation) {
+        if (done.get()) {
+            throw new IllegalStateException("Add an operation to a finished transaction");
+        }
         assert(operation instanceof ZKOp);
         ZKOp zkOp = (ZKOp) operation;
         this.ops.add(zkOp);
@@ -39,6 +44,9 @@ public class ZKTransaction implements Transaction<Object>, AsyncCallback.MultiCa
 
     @Override
     public Future<Void> execute() {
+        if (!done.compareAndSet(false, true)) {
+            return result;
+        }
         try {
             zkc.get().multi(zkOps, this, result);
         } catch (ZooKeeperClient.ZooKeeperConnectionException e) {
@@ -50,18 +58,29 @@ public class ZKTransaction implements Transaction<Object>, AsyncCallback.MultiCa
     }
 
     @Override
+    public void abort(Throwable cause) {
+        if (!done.compareAndSet(false, true)) {
+            return;
+        }
+        for (int i = 0; i < ops.size(); i++) {
+            ops.get(i).abortOpResult(cause, null);
+        }
+        FutureUtils.setException(result, cause);
+    }
+
+    @Override
     public void processResult(int rc, String path, Object ctx, List<OpResult> results) {
         if (KeeperException.Code.OK.intValue() == rc) { // transaction succeed
             for (int i = 0; i < ops.size(); i++) {
                 ops.get(i).commitOpResult(results.get(i));
             }
-            result.setValue(null);
+            FutureUtils.setValue(result, null);
         } else {
             KeeperException ke = KeeperException.create(KeeperException.Code.get(rc));
             for (int i = 0; i < ops.size(); i++) {
-                ops.get(i).abortOpResult(ke, results.get(i));
+                ops.get(i).abortOpResult(ke, null != results ? results.get(i) : null);
             }
-            result.setException(KeeperException.create(KeeperException.Code.get(rc), ""));
+            FutureUtils.setException(result, ke);
         }
     }
 }

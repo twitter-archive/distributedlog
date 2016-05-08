@@ -5,9 +5,9 @@ package com.twitter.distributedlog;
  */
 public interface RecordStream {
     /**
-     * Move to next record
+     * advance <i>numRecords</i> records.
      */
-    void advanceToNextRecord();
+    void advance(int numRecords);
 
     /**
      * Get postion of current record in the stream

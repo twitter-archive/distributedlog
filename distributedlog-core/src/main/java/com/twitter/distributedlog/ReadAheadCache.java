@@ -27,6 +27,7 @@ public class ReadAheadCache {
     private DLSN lastReadAheadDLSN = DLSN.InvalidDLSN;
     private DLSN lastReadAheadUserDLSN = DLSN.InvalidDLSN;
     private final AtomicReference<IOException> lastException = new AtomicReference<IOException>();
+    private final boolean deserializeRecordSet;
     // callbacks
     private final AsyncNotification notification;
     private ReadAheadCallback readAheadCallback = null;
@@ -51,12 +52,14 @@ public class ReadAheadCache {
                           AlertStatsLogger alertStatsLogger,
                           AsyncNotification notification,
                           int maxCachedRecords,
+                          boolean deserializeRecordSet,
                           boolean traceDeliveryLatencyEnabled,
                           long deliveryLatencyWarnThresholdMillis,
                           Ticker ticker) {
         this.streamName = streamName;
         this.maxCachedRecords = maxCachedRecords;
         this.notification = notification;
+        this.deserializeRecordSet = deserializeRecordSet;
 
         // create the readahead queue
         readAheadRecords = new LinkedBlockingQueue<LogRecordWithDLSN>();
@@ -224,10 +227,15 @@ public class ReadAheadCache {
                                        boolean envelopeEntries,
                                        long startSequenceId) {
         try {
-            LogRecord.Reader reader = new LedgerEntryReader(streamName, readPosition.getLogSegmentSequenceNumber(),
-                    ledgerEntry, envelopeEntries, startSequenceId, statsLogger);
+            Entry.Reader reader = Entry.newBuilder()
+                    .setLogSegmentInfo(readPosition.getLogSegmentSequenceNumber(), startSequenceId)
+                    .setEntryId(ledgerEntry.getEntryId())
+                    .setEnvelopeEntry(envelopeEntries)
+                    .deserializeRecordSet(deserializeRecordSet)
+                    .setInputStream(ledgerEntry.getEntryInputStream())
+                    .buildReader();
             while(true) {
-                LogRecordWithDLSN record = reader.readOp();
+                LogRecordWithDLSN record = reader.nextRecord();
 
                 if (null == record) {
                     break;

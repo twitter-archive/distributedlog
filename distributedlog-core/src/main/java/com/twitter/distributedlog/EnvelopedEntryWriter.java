@@ -17,7 +17,7 @@ import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 
-import static com.twitter.distributedlog.Entry.MAX_LOGRECORD_SIZE;
+import static com.twitter.distributedlog.LogRecord.MAX_LOGRECORD_SIZE;
 
 /**
  * {@link com.twitter.distributedlog.io.Buffer} based log record set writer.
@@ -26,10 +26,22 @@ class EnvelopedEntryWriter implements Writer {
 
     static final Logger logger = LoggerFactory.getLogger(EnvelopedEntryWriter.class);
 
+    private static class WriteRequest {
+
+        private final int numRecords;
+        private final Promise<DLSN> promise;
+
+        WriteRequest(int numRecords, Promise<DLSN> promise) {
+            this.numRecords = numRecords;
+            this.promise = promise;
+        }
+
+    }
+
     private final String logName;
     private final Buffer buffer;
     private final LogRecord.Writer writer;
-    private final List<Promise<DLSN>> promiseList;
+    private final List<WriteRequest> writeRequests;
     private final boolean envelopeBeforeTransmit;
     private final CompressionCodec.Type codec;
     private final StatsLogger statsLogger;
@@ -45,14 +57,10 @@ class EnvelopedEntryWriter implements Writer {
         this.logName = logName;
         this.buffer = new Buffer(initialBufferSize * 6 / 5);
         this.writer = new LogRecord.Writer(new DataOutputStream(buffer));
-        this.promiseList = new LinkedList<Promise<DLSN>>();
+        this.writeRequests = new LinkedList<WriteRequest>();
         this.envelopeBeforeTransmit = envelopeBeforeTransmit;
         this.codec = codec;
         this.statsLogger = statsLogger;
-    }
-
-    synchronized List<Promise<DLSN>> getPromiseList() {
-        return promiseList;
     }
 
     @Override
@@ -75,11 +83,15 @@ class EnvelopedEntryWriter implements Writer {
 
         try {
             this.writer.writeOp(record);
+            int numRecords = 1;
             if (!record.isControl()) {
                 hasUserData = true;
             }
-            ++count;
-            promiseList.add(transmitPromise);
+            if (record.isRecordSet()) {
+                numRecords = LogRecordSet.numRecords(record);
+            }
+            count += numRecords;
+            writeRequests.add(new WriteRequest(numRecords, transmitPromise));
             maxTxId = Math.max(maxTxId, record.getTransactionId());
         } catch (IOException e) {
             logger.error("Failed to append record to record set of {} : ",
@@ -91,18 +103,18 @@ class EnvelopedEntryWriter implements Writer {
 
     private synchronized void satisfyPromises(long lssn, long entryId) {
         long nextSlotId = 0;
-        for (Promise<DLSN> promise : promiseList) {
-            promise.setValue(new DLSN(lssn, entryId, nextSlotId));
-            nextSlotId++;
+        for (WriteRequest request : writeRequests) {
+            request.promise.setValue(new DLSN(lssn, entryId, nextSlotId));
+            nextSlotId += request.numRecords;
         }
-        promiseList.clear();
+        writeRequests.clear();
     }
 
     private synchronized void cancelPromises(Throwable reason) {
-        for (Promise<DLSN> promise : promiseList) {
-            promise.setException(reason);
+        for (WriteRequest request : writeRequests) {
+            request.promise.setException(reason);
         }
-        promiseList.clear();
+        writeRequests.clear();
     }
 
     @Override
@@ -148,7 +160,7 @@ class EnvelopedEntryWriter implements Writer {
 
     @Override
     public DLSN finalizeTransmit(long lssn, long entryId) {
-        return new DLSN(lssn, entryId, promiseList.size() - 1);
+        return new DLSN(lssn, entryId, count - 1);
     }
 
     @Override

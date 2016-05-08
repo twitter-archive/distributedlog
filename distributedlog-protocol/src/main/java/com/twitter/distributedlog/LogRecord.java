@@ -106,16 +106,24 @@ import org.slf4j.LoggerFactory;
 public class LogRecord {
     static final Logger LOG = LoggerFactory.getLogger(LogRecord.class);
 
+    // Allow 4K overhead for metadata within the max transmission size
+    public static final int MAX_LOGRECORD_SIZE = 1024 * 1024 - 8 * 1024; //1MB - 8KB
+    // Allow 4K overhead for transmission overhead
+    public static final int MAX_LOGRECORDSET_SIZE = 1024 * 1024 - 4 * 1024; //1MB - 4KB
+
     private static final int INPUTSTREAM_MARK_LIMIT = 16;
 
-    static final long LOGRECORD_METADATA_FLAGS_MASK = 0xffff;
+    static final long LOGRECORD_METADATA_FLAGS_MASK = 0xffffL;
+    static final long LOGRECORD_METADATA_FLAGS_UMASK = 0xffffffffffff0000L;
     static final long LOGRECORD_METADATA_POSITION_MASK = 0x0000ffffffff0000L;
+    static final long LOGRECORD_METADATA_POSITION_UMASK = 0xffff00000000ffffL;
     static final int LOGRECORD_METADATA_POSITION_SHIFT = 16;
     static final long LOGRECORD_METADATA_UNUSED_MASK = 0xffff000000000000L;
 
     // TODO: Replace with EnumSet
     static final long LOGRECORD_FLAGS_CONTROL_MESSAGE = 0x1;
     static final long LOGRECORD_FLAGS_END_OF_STREAM = 0x2;
+    static final long LOGRECORD_FLAGS_RECORD_SET = 0x4;
 
     private long metadata;
     private long txid;
@@ -178,6 +186,15 @@ public class LogRecord {
     }
 
     /**
+     * Set payload for this log record.
+     *
+     * @param payload payload of this log record
+     */
+    void setPayload(byte[] payload) {
+        this.payload = payload;
+    }
+
+    /**
      * Return the payload as an {@link InputStream}.
      *
      * @return payload as input stream
@@ -194,11 +211,27 @@ public class LogRecord {
         this.metadata = metadata;
     }
 
-    void setPositionWithinLogSegment(int positionWithinLogSegment) {
-        assert(positionWithinLogSegment >= 0);
-        metadata = metadata | (((long) positionWithinLogSegment) << LOGRECORD_METADATA_POSITION_SHIFT);
+    protected long getMetadata() {
+        return this.metadata;
     }
 
+    /**
+     * Set the position in the log segment.
+     *
+     * @see #getPositionWithinLogSegment()
+     * @param positionWithinLogSegment position in the log segment.
+     */
+    void setPositionWithinLogSegment(int positionWithinLogSegment) {
+        assert(positionWithinLogSegment >= 0);
+        metadata = (metadata & LOGRECORD_METADATA_POSITION_UMASK) |
+                (((long) positionWithinLogSegment) << LOGRECORD_METADATA_POSITION_SHIFT);
+    }
+
+    /**
+     * The position in the log segment means how many records (inclusive) added to the log segment so far.
+     *
+     * @return position of the record in the log segment.
+     */
     int getPositionWithinLogSegment() {
         long ret = (metadata & LOGRECORD_METADATA_POSITION_MASK) >> LOGRECORD_METADATA_POSITION_SHIFT;
         if (ret < 0 || ret > Integer.MAX_VALUE) {
@@ -206,6 +239,49 @@ public class LogRecord {
                 (ret + " position should never exceed max integer value");
         }
         return (int) ret;
+    }
+
+    /**
+     * Get the last position of this record in the log segment.
+     * <p>If the record isn't record set, it would be same as {@link #getPositionWithinLogSegment()},
+     * otherwise, it would be {@link #getPositionWithinLogSegment()} + numRecords - 1. If the record set
+     * version is unknown, it would be same as {@link #getPositionWithinLogSegment()}.
+     *
+     * @return last position of this record in the log segment.
+     */
+    int getLastPositionWithinLogSegment() {
+        if (isRecordSet()) {
+            try {
+                return getPositionWithinLogSegment() + LogRecordSet.numRecords(this) - 1;
+            } catch (IOException e) {
+                // if it is unrecognized record set, we will return the position of this record set.
+                return getPositionWithinLogSegment();
+            }
+        } else {
+            return getPositionWithinLogSegment();
+        }
+    }
+
+    /**
+     * Set the record to represent a set of records.
+     * <p>The bytes in this record is the serialized format of {@link LogRecordSet}.
+     */
+    public void setRecordSet() {
+        metadata = metadata | LOGRECORD_FLAGS_RECORD_SET;
+    }
+
+    /**
+     * Check if the record represents a set of records.
+     *
+     * @return true if the record represents a set of records, otherwise false.
+     * @see #setRecordSet()
+     */
+    public boolean isRecordSet() {
+        return isRecordSet(metadata);
+    }
+
+    public static boolean isRecordSet(long metadata) {
+        return ((metadata & LOGRECORD_FLAGS_RECORD_SET) != 0);
     }
 
     @VisibleForTesting
@@ -219,7 +295,7 @@ public class LogRecord {
      * @return true if the record is a control record, otherwise false.
      */
     public boolean isControl() {
-        return ((metadata & LOGRECORD_FLAGS_CONTROL_MESSAGE) != 0);
+        return isControl(metadata);
     }
 
     /**
@@ -323,7 +399,10 @@ public class LogRecord {
         private final RecordStream recordStream;
         private final DataInputStream in;
         private final long startSequenceId;
+        private final boolean deserializeRecordSet;
         private static final int SKIP_BUFFER_SIZE = 512;
+        private LogRecordSet.Reader recordSetReader = null;
+        private LogRecordWithDLSN lastRecordSkipTo = null;
 
         /**
          * Construct the reader
@@ -333,9 +412,17 @@ public class LogRecord {
         public Reader(RecordStream recordStream,
                       DataInputStream in,
                       long startSequenceId) {
+            this(recordStream, in, startSequenceId, true);
+        }
+
+        public Reader(RecordStream recordStream,
+                      DataInputStream in,
+                      long startSequenceId,
+                      boolean deserializeRecordSet) {
             this.recordStream = recordStream;
             this.in = in;
             this.startSequenceId = startSequenceId;
+            this.deserializeRecordSet = deserializeRecordSet;
         }
 
         /**
@@ -348,29 +435,58 @@ public class LogRecord {
          * @throws IOException on error.
          */
         public LogRecordWithDLSN readOp() throws IOException {
-            try {
-                long metadata = in.readLong();
-                // Reading the first 8 bytes positions the record stream on the correct log record
-                // By this time all components of the DLSN are valid so this is where we shoud
-                // retrieve the currentDLSN and advance to the next
-                // Given that there are 20 bytes following the read position of the previous call
-                // to readLong, we should not have moved ahead in the stream.
-                LogRecordWithDLSN nextRecordInStream = new LogRecordWithDLSN(recordStream.getCurrentPosition(), startSequenceId);
-                nextRecordInStream.setMetadata(metadata);
-                recordStream.advanceToNextRecord();
-                nextRecordInStream.setTransactionId(in.readLong());
-                nextRecordInStream.readPayload(in);
-                if (LOG.isTraceEnabled()) {
-                    if (nextRecordInStream.isControl()) {
-                        LOG.trace("Reading {} Control DLSN {}", recordStream.getName(), nextRecordInStream.getDlsn());
+            LogRecordWithDLSN nextRecordInStream;
+            while (true) {
+                if (lastRecordSkipTo != null) {
+                    nextRecordInStream = lastRecordSkipTo;
+                    recordStream.advance(1);
+                    lastRecordSkipTo = null;
+                    return nextRecordInStream;
+                }
+                if (recordSetReader != null) {
+                    nextRecordInStream = recordSetReader.nextRecord();
+                    if (null != nextRecordInStream) {
+                        recordStream.advance(1);
+                        return nextRecordInStream;
                     } else {
-                        LOG.trace("Reading {} Valid DLSN {}", recordStream.getName(), nextRecordInStream.getDlsn());
+                        recordSetReader = null;
                     }
                 }
-                return nextRecordInStream;
-            } catch (EOFException eof) {
-                // Expected
 
+                try {
+                    long metadata = in.readLong();
+                    // Reading the first 8 bytes positions the record stream on the correct log record
+                    // By this time all components of the DLSN are valid so this is where we shoud
+                    // retrieve the currentDLSN and advance to the next
+                    // Given that there are 20 bytes following the read position of the previous call
+                    // to readLong, we should not have moved ahead in the stream.
+                    nextRecordInStream = new LogRecordWithDLSN(recordStream.getCurrentPosition(), startSequenceId);
+                    nextRecordInStream.setMetadata(metadata);
+                    nextRecordInStream.setTransactionId(in.readLong());
+                    nextRecordInStream.readPayload(in);
+                    if (LOG.isTraceEnabled()) {
+                        if (nextRecordInStream.isControl()) {
+                            LOG.trace("Reading {} Control DLSN {}", recordStream.getName(), nextRecordInStream.getDlsn());
+                        } else {
+                            LOG.trace("Reading {} Valid DLSN {}", recordStream.getName(), nextRecordInStream.getDlsn());
+                        }
+                    }
+
+                    int numRecords = 1;
+                    if (!deserializeRecordSet && nextRecordInStream.isRecordSet()) {
+                        numRecords = LogRecordSet.numRecords(nextRecordInStream);
+                    }
+
+                    if (deserializeRecordSet && nextRecordInStream.isRecordSet()) {
+                        recordSetReader = LogRecordSet.of(nextRecordInStream);
+                    } else {
+                        recordStream.advance(numRecords);
+                        return nextRecordInStream;
+                    }
+                } catch (EOFException eof) {
+                    // Expected
+                    break;
+                }
             }
             return null;
         }
@@ -388,48 +504,86 @@ public class LogRecord {
             byte[] skipBuffer = null;
             boolean found = false;
             while (true) {
-                in.mark(INPUTSTREAM_MARK_LIMIT);
                 try {
-                    long flags = in.readLong();
+                    long flags;
+                    long currTxId;
+
+                    // if there is not record set, read next record
+                    if (null == recordSetReader) {
+                        in.mark(INPUTSTREAM_MARK_LIMIT);
+                        flags = in.readLong();
+                        currTxId = in.readLong();
+                    } else {
+                        // check record set until reach end of record set
+                        lastRecordSkipTo = recordSetReader.nextRecord();
+                        if (null == lastRecordSkipTo) {
+                            // reach end of record set
+                            recordSetReader = null;
+                            continue;
+                        }
+                        flags = lastRecordSkipTo.getMetadata();
+                        currTxId = lastRecordSkipTo.getTransactionId();
+                    }
+
                     if ((null != dlsn) && (recordStream.getCurrentPosition().compareTo(dlsn) >=0)) {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("Found position {} beyond {}", recordStream.getCurrentPosition(), dlsn);
                         }
-                        in.reset();
+                        if (null == lastRecordSkipTo) {
+                            in.reset();
+                        }
                         found = true;
                         break;
                     }
-                    long currTxId = in.readLong();
                     if ((null != txId) && (currTxId >= txId)) {
                         if (!skipControl || !isControl(flags)) {
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("Found position {} beyond {}", currTxId, txId);
                             }
-                            in.reset();
+                            if (null == lastRecordSkipTo) {
+                                in.reset();
+                            }
                             found = true;
                             break;
                         }
                     }
-                    int length = in.readInt();
-                    if (length < 0) {
-                        // We should never really see this as we only write complete entries to
-                        // BK and BK client has logic to detect torn writes (through checksum)
-                        LOG.info("Encountered Record with negative length at TxId: {}", currTxId);
-                        break;
+
+                    if (null != lastRecordSkipTo) {
+                        recordStream.advance(1);
+                        continue;
                     }
-                    if (null == skipBuffer) {
-                        skipBuffer = new byte[SKIP_BUFFER_SIZE];
+
+                    // get the num of records to skip
+                    if (isRecordSet(flags)) {
+                        // read record set
+                        LogRecordWithDLSN record = new LogRecordWithDLSN(recordStream.getCurrentPosition(), startSequenceId);
+                        record.setMetadata(flags);
+                        record.setTransactionId(currTxId);
+                        record.readPayload(in);
+                        recordSetReader = LogRecordSet.of(record);
+                    } else {
+                        int length = in.readInt();
+                        if (length < 0) {
+                            // We should never really see this as we only write complete entries to
+                            // BK and BK client has logic to detect torn writes (through checksum)
+                            LOG.info("Encountered Record with negative length at TxId: {}", currTxId);
+                            break;
+                        }
+                        // skip single record
+                        if (null == skipBuffer) {
+                            skipBuffer = new byte[SKIP_BUFFER_SIZE];
+                        }
+                        int read = 0;
+                        while (read < length) {
+                            int bytesToRead = Math.min(length - read, SKIP_BUFFER_SIZE);
+                            in.readFully(skipBuffer, 0, bytesToRead);
+                            read += bytesToRead;
+                        }
+                        if (LOG.isTraceEnabled()) {
+                            LOG.trace("Skipped Record with TxId {} DLSN {}", currTxId, recordStream.getCurrentPosition());
+                        }
+                        recordStream.advance(1);
                     }
-                    int read = 0;
-                    while (read < length) {
-                        int bytesToRead = Math.min(length - read, SKIP_BUFFER_SIZE);
-                        in.readFully(skipBuffer, 0 , bytesToRead);
-                        read += bytesToRead;
-                    }
-                    if (LOG.isTraceEnabled()) {
-                        LOG.trace("Skipped Record with TxId {} DLSN {}", currTxId, recordStream.getCurrentPosition());
-                    }
-                    recordStream.advanceToNextRecord();
                 } catch (EOFException eof) {
                     LOG.debug("Skip encountered end of file Exception", eof);
                     break;

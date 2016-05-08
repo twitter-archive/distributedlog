@@ -37,9 +37,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.twitter.distributedlog.BKDistributedLogNamespace;
+import com.twitter.distributedlog.Entry;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;
-import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.Utils;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -73,7 +73,6 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogConstants;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.LedgerEntryReader;
 import com.twitter.distributedlog.LogNotFoundException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
@@ -161,7 +160,7 @@ public class DistributedLogTool extends Tool {
             try {
                 parseCommandLine(commandLine);
             } catch (ParseException pe) {
-                println("ERROR: fail to parse commandline : '" + pe.getMessage() + "'");
+                System.err.println("ERROR: failed to parse commandline : '" + pe.getMessage() + "'");
                 printUsage();
                 return -1;
             }
@@ -195,8 +194,7 @@ public class DistributedLogTool extends Tool {
                 } catch (ConfigurationException e) {
                     throw new ParseException("Failed to load distributedlog configuration from " + configFile + ".");
                 } catch (MalformedURLException e) {
-                    throw new ParseException("Failed to load distributedlog configuration from malformed "
-                            + configFile + ".");
+                    throw new ParseException("Failed to load distributedlog configuration from " + configFile + ": malformed uri.");
                 }
             }
             if (cmdline.hasOption("a")) {
@@ -278,7 +276,7 @@ public class DistributedLogTool extends Tool {
             try {
                 parseCommandLine(commandLine);
             } catch (ParseException pe) {
-                println("ERROR: fail to parse commandline : '" + pe.getMessage() + "'");
+                System.err.println("ERROR: failed to parse commandline : '" + pe.getMessage() + "'");
                 printUsage();
                 return -1;
             }
@@ -342,13 +340,13 @@ public class DistributedLogTool extends Tool {
             if (cmdline.hasOption("t")) {
                 concurrency = Integer.parseInt(cmdline.getOptionValue("t"));
                 if (concurrency <= 0) {
-                    throw new ParseException("Invalid concurrency value : " + concurrency);
+                    throw new ParseException("Invalid concurrency value : " + concurrency + ": it must be greater or equal to 0.");
                 }
             }
             if (cmdline.hasOption("ap")) {
                 allocationPoolPath = cmdline.getOptionValue("ap");
                 if (!allocationPoolPath.startsWith(".") || !allocationPoolPath.contains("allocation")) {
-                    throw new ParseException("Invalid allocation pool path : " + allocationPoolPath);
+                    throw new ParseException("Invalid allocation pool path : " + allocationPoolPath + ": it must starts with a '.' and must contains 'allocation'");
                 }
             }
         }
@@ -382,17 +380,17 @@ public class DistributedLogTool extends Tool {
                                                         getZooKeeperClient(), getBookKeeperClient(),
                                                         allocationExecutor);
                                         if (null == allocator) {
-                                            println("ERROR: use zk34 version to delete allocator pool : " + poolPath + " .");
+                                            System.err.println("ERROR: use zk34 version to delete allocator pool : " + poolPath + " .");
                                         } else {
                                             allocator.delete();
-                                            println("Deleted allocator pool : " + poolPath + " .");
+                                            System.out.println("Deleted allocator pool : " + poolPath + " .");
                                         }
                                     } catch (IOException ioe) {
-                                        println("Failed to delete allocator pool " + poolPath + " : " + ioe.getMessage());
+                                        System.err.println("Failed to delete allocator pool " + poolPath + " : " + ioe.getMessage());
                                     }
                                 }
                                 doneLatch.countDown();
-                                println("Thread " + tid + " is done.");
+                                System.out.println("Thread " + tid + " is done.");
                             }
                         });
                     }
@@ -447,31 +445,31 @@ public class DistributedLogTool extends Tool {
         protected void printStreamsWithMetadata(com.twitter.distributedlog.DistributedLogManagerFactory factory)
                 throws Exception {
             Map<String, byte[]> streams = factory.enumerateLogsWithMetadataInNamespace();
-            println("Stream under " + getUri() + " : ");
-            println("--------------------------------");
+            System.out.println("Streams under " + getUri() + " : ");
+            System.out.println("--------------------------------");
             for (Map.Entry<String, byte[]> entry : streams.entrySet()) {
                 println(entry.getKey());
                 if (null == entry.getValue() || entry.getValue().length == 0) {
                     continue;
                 }
                 if (printHex) {
-                    println(Hex.encodeHexString(entry.getValue()));
+                    System.out.println(Hex.encodeHexString(entry.getValue()));
                 } else {
-                    println(new String(entry.getValue(), UTF_8));
+                    System.out.println(new String(entry.getValue(), UTF_8));
                 }
-                println("");
+                System.out.println("");
             }
-            println("--------------------------------");
+            System.out.println("--------------------------------");
         }
 
         protected void printStreams(com.twitter.distributedlog.DistributedLogManagerFactory factory) throws Exception {
             Collection<String> streams = factory.enumerateAllLogsInNamespace();
-            println("Steams under " + getUri() + " : ");
-            println("--------------------------------");
+            System.out.println("Streams under " + getUri() + " : ");
+            System.out.println("--------------------------------");
             for (String stream : streams) {
-                println(stream);
+                System.out.println(stream);
             }
-            println("--------------------------------");
+            System.out.println("--------------------------------");
         }
     }
 
@@ -571,9 +569,9 @@ public class DistributedLogTool extends Tool {
                     public void run() {
                         try {
                             inspectStreams(streams, tid, numStreamsPerThreads, corruptedCandidates);
-                            println("Thread " + tid + " finished.");
+                            System.out.println("Thread " + tid + " finished.");
                         } catch (Exception e) {
-                            println("Thread " + tid + " quits with exception : " + e.getMessage());
+                            System.err.println("Thread " + tid + " quits with exception : " + e.getMessage());
                         }
                     }
                 };
@@ -734,8 +732,8 @@ public class DistributedLogTool extends Tool {
             if (0 == streams.size()) {
                 return 0;
             }
-            println("Streams : " + streams);
-            if (!getForce() && !IOUtils.confirmPrompt("Are u sure to truncate " + streams.size() + " streams")) {
+            System.out.println("Streams : " + streams);
+            if (!getForce() && !IOUtils.confirmPrompt("Do you want to truncate " + streams.size() + " streams ?")) {
                 return 0;
             }
             numThreads = Math.min(streams.size(), numThreads);
@@ -748,9 +746,9 @@ public class DistributedLogTool extends Tool {
                     public void run() {
                         try {
                             truncateStreams(factory, streams, tid, numStreamsPerThreads);
-                            println("Thread " + tid + " finished.");
+                            System.out.println("Thread " + tid + " finished.");
                         } catch (IOException e) {
-                            println("Thread " + tid + " quits with exception : " + e.getMessage());
+                            System.err.println("Thread " + tid + " quits with exception : " + e.getMessage());
                         }
                     }
                 };
@@ -882,7 +880,7 @@ public class DistributedLogTool extends Tool {
         private void printMetadata(DistributedLogManager dlm) throws Exception {
             printHeader(dlm);
             if (listSegments) {
-                println("Ledgers : ");
+                System.out.println("Ledgers : ");
                 List<LogSegmentMetadata> segments = dlm.getLogSegments();
                 for (LogSegmentMetadata segment : segments) {
                     if (include(segment)) {
@@ -901,7 +899,7 @@ public class DistributedLogTool extends Tool {
             long recordCount = dlm.getLogRecordCount();
             String result = String.format("Stream : (firstTxId=%d, lastTxid=%d, firstDlsn=%s, lastDlsn=%s, endOfStreamMarked=%b, recordCount=%d)",
                 firstTxnId, lastTxnId, getDlsnName(firstDlsn), getDlsnName(lastDlsn), endOfStreamMarked, recordCount);
-            println(result);
+            System.out.println(result);
             if (listEppStats) {
                 printEppStatsHeader(dlm);
             }
@@ -913,7 +911,7 @@ public class DistributedLogTool extends Tool {
 
         private void printEppStatsHeader(DistributedLogManager dlm) throws Exception {
             String label = "Ledger Placement :";
-            println(label);
+            System.out.println(label);
             Map<BookieSocketAddress, Integer> totals = new HashMap<BookieSocketAddress, Integer>();
             List<LogSegmentMetadata> segments = dlm.getLogSegments();
             for (LogSegmentMetadata segment : segments) {
@@ -935,12 +933,12 @@ public class DistributedLogTool extends Tool {
                 totalEntries += entry.getValue();
             }
             for (Map.Entry<BookieSocketAddress, Integer> entry : entries) {
-                println(String.format("%"+width+"s\t%6.2f%%\t\t%d", entry.getKey(), entry.getValue()*1.0/totalEntries, entry.getValue()));
+                System.out.println(String.format("%"+width+"s\t%6.2f%%\t\t%d", entry.getKey(), entry.getValue()*1.0/totalEntries, entry.getValue()));
             }
         }
 
         private void printLedgerRow(LogSegmentMetadata segment) throws Exception {
-            println(segment.getLogSegmentSequenceNumber() + "\t: " + segment);
+            System.out.println(segment.getLogSegmentSequenceNumber() + "\t: " + segment);
         }
 
         private Map<BookieSocketAddress, Integer> getBookieStats(LogSegmentMetadata segment) throws Exception {
@@ -1020,7 +1018,7 @@ public class DistributedLogTool extends Tool {
                 } else {
                     count = countFromStartToEnd(dlm);
                 }
-                println("total is " + count + " records.");
+                System.out.println("total is " + count + " records.");
                 return 0;
             } finally {
                 dlm.close();
@@ -1034,7 +1032,7 @@ public class DistributedLogTool extends Tool {
                 try {
                     LogRecordWithDLSN record = reader.readNext(false);
                     LogRecordWithDLSN preRecord = record;
-                    println("first record : " + record);
+                    System.out.println("first record : " + record);
                     while (null != record) {
                         if (record.getDlsn().compareTo(endDLSN) > 0) {
                             break;
@@ -1046,7 +1044,7 @@ public class DistributedLogTool extends Tool {
                         preRecord = record;
                         record = reader.readNext(false);
                     }
-                    println("last record : " + preRecord);
+                    System.out.println("last record : " + preRecord);
                 } finally {
                     reader.close();
                 }
@@ -1107,7 +1105,7 @@ public class DistributedLogTool extends Tool {
         protected void parseCommandLine(CommandLine cmdline) throws ParseException {
             super.parseCommandLine(cmdline);
             if (cmdline.hasOption("l") && cmdline.hasOption("lf")) {
-                throw new ParseException("Please specify ledgers either use list or use file only.");
+                throw new ParseException("Please specify ledgers: either use list or use file only.");
             }
             if (!cmdline.hasOption("l") && !cmdline.hasOption("lf")) {
                 throw new ParseException("No ledgers specified. Please specify ledgers either use list or use file only.");
@@ -1177,12 +1175,12 @@ public class DistributedLogTool extends Tool {
                                     getBookKeeperClient().get().deleteLedger(ledger);
                                     int numLedgersDeleted = numLedgers.incrementAndGet();
                                     if (numLedgersDeleted % 1000 == 0) {
-                                        println("Deleted " + numLedgersDeleted + " ledgers.");
+                                        System.out.println("Deleted " + numLedgersDeleted + " ledgers.");
                                     }
                                 } catch (BKException.BKNoSuchLedgerExistsException e) {
                                     int numLedgersDeleted = numLedgers.incrementAndGet();
                                     if (numLedgersDeleted % 1000 == 0) {
-                                        println("Deleted " + numLedgersDeleted + " ledgers.");
+                                        System.out.println("Deleted " + numLedgersDeleted + " ledgers.");
                                     }
                                 } catch (Exception e) {
                                     numFailures.incrementAndGet();
@@ -1190,7 +1188,7 @@ public class DistributedLogTool extends Tool {
                                 }
                             }
                             doneLatch.countDown();
-                            println("Thread " + tid + " quits");
+                            System.out.println("Thread " + tid + " quits");
                         }
                     });
                 }
@@ -1273,10 +1271,10 @@ public class DistributedLogTool extends Tool {
         protected int runCmd() throws Exception {
             generateStreams(streamPrefix, streamExpression);
             if (streams.isEmpty()) {
-                println("Nothing to create.");
+                System.out.println("Nothing to create.");
                 return 0;
             }
-            if (!getForce() && !IOUtils.confirmPrompt("Are u going to create streams : " + streams)) {
+            if (!getForce() && !IOUtils.confirmPrompt("You are going to create streams : " + streams)) {
                 return 0;
             }
             getConf().setZkAclId(getZkAclId());
@@ -1376,7 +1374,7 @@ public class DistributedLogTool extends Tool {
                 Object startOffset;
                 try {
                     DLSN lastDLSN = Await.result(dlm.getLastDLSNAsync());
-                    println("Last DLSN : " + lastDLSN);
+                    System.out.println("Last DLSN : " + lastDLSN);
                     if (null == fromDLSN) {
                         reader = dlm.getAsyncLogReader(fromTxnId);
                         startOffset = fromTxnId;
@@ -1385,11 +1383,11 @@ public class DistributedLogTool extends Tool {
                         startOffset = fromDLSN;
                     }
                 } catch (LogNotFoundException lee) {
-                    println("No stream found to dump records.");
+                    System.out.println("No stream found to dump records.");
                     return 0;
                 }
                 try {
-                    println(String.format("Dump records for %s (from = %s, dump count = %d, total records = %d)",
+                    System.out.println(String.format("Dump records for %s (from = %s, dump count = %d, total records = %d)",
                             getStreamName(), startOffset, count, totalCount));
 
                     dumpRecords(reader);
@@ -1415,33 +1413,33 @@ public class DistributedLogTool extends Tool {
                 record = Await.result(reader.readNext());
             }
             if (numRead == 0) {
-                println("No records.");
+                System.out.println("No records.");
             } else {
-                println("------------------------------------------------");
+                System.out.println("------------------------------------------------");
             }
         }
 
         private void dumpRecord(LogRecord record) {
-            println("------------------------------------------------");
+            System.out.println("------------------------------------------------");
             if (record instanceof LogRecordWithDLSN) {
-                println("Record (txn = " + record.getTransactionId() + ", bytes = "
+                System.out.println("Record (txn = " + record.getTransactionId() + ", bytes = "
                         + record.getPayload().length + ", dlsn = "
                         + ((LogRecordWithDLSN) record).getDlsn() + ", sequence id = "
                         + ((LogRecordWithDLSN) record).getSequenceId() + ")");
             } else {
-                println("Record (txn = " + record.getTransactionId() + ", bytes = "
+                System.out.println("Record (txn = " + record.getTransactionId() + ", bytes = "
                         + record.getPayload().length + ")");
             }
-            println("");
+            System.out.println("");
 
             if (skipPayload) {
                 return;
             }
 
             if (printHex) {
-                println(Hex.encodeHexString(record.getPayload()));
+                System.out.println(Hex.encodeHexString(record.getPayload()));
             } else {
-                println(new String(record.getPayload(), UTF_8));
+                System.out.println(new String(record.getPayload(), UTF_8));
             }
         }
 
@@ -1492,15 +1490,14 @@ public class DistributedLogTool extends Tool {
             try {
                 List<LogSegmentMetadata> segmentsToRepair = inspectLogSegments(bkc, segments);
                 if (segmentsToRepair.isEmpty()) {
-                    System.out.println("Stream is good. No log segments to repair.");
+                    System.out.println("The stream is good. No log segments to repair.");
                     return 0;
                 }
                 System.out.println(segmentsToRepair.size() + " segments to repair : ");
                 System.out.println(segmentsToRepair);
                 System.out.println();
-                if (!IOUtils.confirmPrompt("Are u sure to repair them (Y/N): ")) {
-                    System.out.println("Gave up! Bye!");
-                    return -1;
+                if (!IOUtils.confirmPrompt("Do you want to repair them (Y/N): ")) {
+                    return 0;
                 }
                 repairLogSegments(metadataStore, bkc, segmentsToRepair);
                 return 0;
@@ -1609,24 +1606,23 @@ public class DistributedLogTool extends Tool {
                 throw new IOException("Entry " + lac + " isn't found for " + segment);
             }
             LedgerEntry lastEntry = entries.nextElement();
-            LedgerEntryReader reader = new LedgerEntryReader("dlog",
-                                                             segment.getLogSegmentSequenceNumber(),
-                                                             lastEntry,
-                                                             LogSegmentMetadata.supportsEnvelopedEntries(segment.getVersion()),
-                                                             segment.getStartSequenceId(),
-                                                             NullStatsLogger.INSTANCE);
-            LogRecordWithDLSN record = reader.readOp();
+            Entry.Reader reader = Entry.newBuilder()
+                    .setLogSegmentInfo(segment.getLogSegmentSequenceNumber(), segment.getStartSequenceId())
+                    .setEntryId(lastEntry.getEntryId())
+                    .setEnvelopeEntry(LogSegmentMetadata.supportsEnvelopedEntries(segment.getVersion()))
+                    .setInputStream(lastEntry.getEntryInputStream())
+                    .buildReader();
+            LogRecordWithDLSN record = reader.nextRecord();
             LogRecordWithDLSN lastRecord = null;
             while (null != record) {
                 lastRecord = record;
-                record = reader.readOp();
+                record = reader.nextRecord();
             }
             if (null == lastRecord) {
                 throw new IOException("No record found in entry " + lac + " for " + segment);
             }
             System.out.println("Updating last record for " + segment + " to " + lastRecord);
-            if (!IOUtils.confirmPrompt("Are u sure to make the change (Y/N): ")) {
-                System.out.println("Gave up on updating log segment " + segment);
+            if (!IOUtils.confirmPrompt("Do you want to make this change (Y/N): ")) {
                 return;
             }
             metadataUpdater.updateLastRecord(segment, lastRecord);
@@ -1774,14 +1770,13 @@ public class DistributedLogTool extends Tool {
                     return bkFence(bkc, ledgers, fenceRate);
                 }
                 if (!force) {
-                    System.err.println("Bookies : " + bookiesSrc);
-                    if (!IOUtils.confirmPrompt("Are you sure to recover them : (Y/N)")) {
-                        System.err.println("Give up!");
+                    System.out.println("Bookies : " + bookiesSrc);
+                    if (!IOUtils.confirmPrompt("Do you want to recover them: (Y/N)")) {
                         return -1;
                     }
                 }
                 if (!ledgers.isEmpty()) {
-                    System.err.println("Ledgers : " + ledgers);
+                    System.out.println("Ledgers : " + ledgers);
                     long numProcessed = 0;
                     Iterator<Long> ledgersIter = ledgers.iterator();
                     LinkedBlockingQueue<Long> ledgersToProcess = new LinkedBlockingQueue<Long>();
@@ -1858,7 +1853,7 @@ public class DistributedLogTool extends Tool {
                                 numRetries = 0;
                             }
                         }
-                        System.err.println("Thread exits");
+                        System.out.println("Thread exits");
                     }
                 });
             }
@@ -1883,7 +1878,7 @@ public class DistributedLogTool extends Tool {
                 System.out.println("]");
                 System.out.println();
             }
-            System.err.println("Done");
+            System.out.println("Done");
             return 0;
         }
 
@@ -2055,7 +2050,7 @@ public class DistributedLogTool extends Tool {
                     getLedgerID(), BookKeeper.DigestType.CRC32, dlConf.getBKDigestPW().getBytes(UTF_8));
             try {
                 long lac = lh.readLastConfirmed();
-                println("LastAddConfirmed: " + lac);
+                System.out.println("LastAddConfirmed: " + lac);
             } finally {
                 lh.close();
             }
@@ -2185,9 +2180,12 @@ public class DistributedLogTool extends Tool {
                         System.out.println("\tbookie=" + rr.getBookieAddress());
                         System.out.println("\t-------------------------------");
                         if (BKException.Code.OK == rr.getResultCode()) {
-                            LedgerEntryReader reader = new LedgerEntryReader("dlog", lh.getId(), eid, rr.getValue(),
-                                                                             LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion),
-                                                                             0L, NullStatsLogger.INSTANCE);
+                            Entry.Reader reader = Entry.newBuilder()
+                                    .setLogSegmentInfo(lh.getId(), 0L)
+                                    .setEntryId(eid)
+                                    .setInputStream(rr.getValue())
+                                    .setEnvelopeEntry(LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion))
+                                    .buildReader();
                             printEntry(reader);
                         } else {
                             System.out.println("status = " + BKException.getMessage(rr.getResultCode()));
@@ -2241,27 +2239,30 @@ public class DistributedLogTool extends Tool {
             while (entries.hasMoreElements()) {
                 LedgerEntry entry = entries.nextElement();
                 System.out.println("\t" + i  + "(eid=" + entry.getEntryId() + ")\t: ");
-                LedgerEntryReader reader = new LedgerEntryReader("dlog", 0L, entry,
-                                                                 LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion),
-                                                                 0L, NullStatsLogger.INSTANCE);
+                Entry.Reader reader = Entry.newBuilder()
+                        .setLogSegmentInfo(0L, 0L)
+                        .setEntryId(entry.getEntryId())
+                        .setInputStream(entry.getEntryInputStream())
+                        .setEnvelopeEntry(LogSegmentMetadata.supportsEnvelopedEntries(metadataVersion))
+                        .buildReader();
                 printEntry(reader);
                 ++i;
             }
         }
 
-        private void printEntry(LedgerEntryReader reader) throws Exception {
-            LogRecordWithDLSN record = reader.readOp();
+        private void printEntry(Entry.Reader reader) throws Exception {
+            LogRecordWithDLSN record = reader.nextRecord();
             while (null != record) {
                 System.out.println("\t" + record);
                 if (!skipPayload) {
                     if (printHex) {
-                        println(Hex.encodeHexString(record.getPayload()));
+                        System.out.println(Hex.encodeHexString(record.getPayload()));
                     } else {
-                        println(new String(record.getPayload(), UTF_8));
+                        System.out.println(new String(record.getPayload(), UTF_8));
                     }
                 }
-                println("");
-                record = reader.readOp();
+                System.out.println("");
+                record = reader.nextRecord();
             }
         }
 
@@ -2293,7 +2294,7 @@ public class DistributedLogTool extends Tool {
             try {
                 parseCommandLine(commandLine);
             } catch (ParseException pe) {
-                println("ERROR: fail to parse commandline : '" + pe.getMessage() + "'");
+                System.err.println("ERROR: failed to parse commandline : '" + pe.getMessage() + "'");
                 printUsage();
                 return -1;
             }
@@ -2394,14 +2395,13 @@ public class DistributedLogTool extends Tool {
             } finally {
                 pw.close();
             }
-            println("Dump " + ledgers.size() + " ledgers to file : " + targetFile);
+            System.out.println("Dump " + ledgers.size() + " ledgers to file : " + targetFile);
         }
 
         @Override
         protected int runCmd() throws Exception {
-            if (!getForce() && !IOUtils.confirmPrompt("Are u sure to audit uris : "
+            if (!getForce() && !IOUtils.confirmPrompt("Do you want to audit uris : "
                     + getUris() + ", allocation paths = " + allocationPaths)) {
-                println("ByeBye");
                 return 0;
             }
 
@@ -2545,13 +2545,13 @@ public class DistributedLogTool extends Tool {
                 long totalRecords = dlm.getLogRecordCount();
                 long recordsAfterTruncate = Await.result(dlm.getLogRecordCountAsync(dlsn));
                 long recordsToTruncate = totalRecords - recordsAfterTruncate;
-                if (!getForce() && !IOUtils.confirmPrompt("Are you sure you want to truncate " + streamName + " at dlsn " + dlsn + " (" + recordsToTruncate + " records)?")) {
+                if (!getForce() && !IOUtils.confirmPrompt("Do you want to truncate " + streamName + " at dlsn " + dlsn + " (" + recordsToTruncate + " records)?")) {
                     return 0;
                 } else {
                     AsyncLogWriter writer = dlm.startAsyncLogSegmentNonPartitioned();
                     try {
                         if (!Await.result(writer.truncate(dlsn))) {
-                            println("Failed to truncate.");
+                            System.out.println("Failed to truncate.");
                         }
                         return 0;
                     } finally {
@@ -2559,7 +2559,7 @@ public class DistributedLogTool extends Tool {
                     }
                 }
             } catch (Exception ex) {
-                println("Failed to truncate " + ex);
+                System.err.println("Failed to truncate " + ex);
                 return 1;
             } finally {
                 dlm.close();
@@ -2590,7 +2590,7 @@ public class DistributedLogTool extends Tool {
 
         @Override
         protected int runSimpleCmd() throws Exception {
-            println(DLSN.deserialize(base64Dlsn).toString());
+            System.out.println(DLSN.deserialize(base64Dlsn).toString());
             return 0;
         }
     }
@@ -2622,9 +2622,9 @@ public class DistributedLogTool extends Tool {
             if (hex) {
                 byte[] bytes = dlsn.serializeBytes();
                 String hexString = Hex.encodeHexString(bytes);
-                println(hexString);
+                System.out.println(hexString);
             } else {
-                println(dlsn.serialize());
+                System.out.println(dlsn.serialize());
             }
             return 0;
         }

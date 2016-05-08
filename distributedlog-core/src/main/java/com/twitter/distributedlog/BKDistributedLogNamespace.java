@@ -11,6 +11,7 @@ import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.acl.DefaultAccessControlManager;
 import com.twitter.distributedlog.acl.ZKAccessControlManager;
 import com.twitter.distributedlog.bk.LedgerAllocator;
+import com.twitter.distributedlog.bk.LedgerAllocatorPool;
 import com.twitter.distributedlog.bk.LedgerAllocatorUtils;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
@@ -324,7 +325,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
                 .build();
         if (conf.getNumReadAheadWorkerThreads() > 0) {
             this.readAheadExecutor = OrderedScheduler.newBuilder()
-                    .name("DLM-" + uri.getPath() + "-readahead-executor-%d")
+                    .name("DLM-" + uri.getPath() + "-readahead-executor")
                     .corePoolSize(conf.getNumReadAheadWorkerThreads())
                     .statsLogger(statsLogger.scope("factory").scope("readahead_thread_pool"))
                     .traceTaskExecution(conf.getTraceReadAheadDeliveryLatency())
@@ -659,6 +660,11 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
     @VisibleForTesting
     public LogSegmentMetadataStore getWriterSegmentMetadataStore() {
         return writerSegmentMetadataStore;
+    }
+
+    @VisibleForTesting
+    public LedgerAllocator getLedgerAllocator() {
+        return allocator;
     }
 
     /**

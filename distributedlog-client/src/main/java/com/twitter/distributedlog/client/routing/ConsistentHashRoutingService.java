@@ -271,10 +271,10 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
 
     private static final int UNKNOWN_SHARD_ID = -1;
 
-    private ConsistentHashRoutingService(ServerSetWatcher serverSetWatcher,
-                                         int numReplicas,
-                                         int blackoutSeconds,
-                                         StatsReceiver statsReceiver) {
+    ConsistentHashRoutingService(ServerSetWatcher serverSetWatcher,
+                                 int numReplicas,
+                                 int blackoutSeconds,
+                                 StatsReceiver statsReceiver) {
         super(serverSetWatcher);
         this.circle = new ConsistentHash(hashFunction, numReplicas, statsReceiver.scope("ring"));
         this.hashedWheelTimer = new HashedWheelTimer(new ThreadFactoryBuilder()
@@ -423,13 +423,23 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                     Maps.difference(shardId2Address, newMap);
             left = difference.entriesOnlyOnLeft();
             for (Integer shard : left.keySet()) {
-                SocketAddress host = shardId2Address.get(shard);
-                if (null != host) {
-                    // we don't remove those hosts that just disappered on serverset proactively,
-                    // since it might be just because serverset become flaky
-                    // address2ShardId.remove(host);
-                    // circle.remove(shard, host);
-                    logger.info("Shard {} ({}) left temporarily.", shard, host);
+                if (shard >= 0) {
+                    SocketAddress host = shardId2Address.get(shard);
+                    if (null != host) {
+                        // we don't remove those hosts that just disappered on serverset proactively,
+                        // since it might be just because serverset become flaky
+                        // address2ShardId.remove(host);
+                        // circle.remove(shard, host);
+                        logger.info("Shard {} ({}) left temporarily.", shard, host);
+                    }
+                } else {
+                    // shard id is negative - they are resolved from finagle name, which instances don't have shard id
+                    // in this case, if they are removed from serverset, we removed them directly
+                    SocketAddress host = left.get(shard);
+                    if (null != host) {
+                        removeHostInternal(host, Optional.<Throwable>absent());
+                        removedList.add(host);
+                    }
                 }
             }
             // we need to find if any shards are replacing old shards
