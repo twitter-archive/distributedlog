@@ -469,7 +469,6 @@ public class DistributedLock implements LockListener, AsyncCloseable {
     }
 
     private Future<DistributedLock> reacquireLock(boolean throwLockAcquireException) throws LockingException {
-        LOG.info("reacquiring lock at {}", lockPath);
         final Stopwatch stopwatch = Stopwatch.createStarted();
         Promise<DistributedLock> lockPromise;
         synchronized (this) {
@@ -486,6 +485,7 @@ public class DistributedLock implements LockListener, AsyncCloseable {
             if (null != lockReacquireFuture) {
                 return lockReacquireFuture;
             }
+            LOG.info("reacquiring lock at {}", lockPath);
             lockReacquireFuture = lockPromise = new Promise<DistributedLock>();
             lockReacquireFuture.addEventListener(new FutureEventListener<DistributedLock>() {
                 @Override
