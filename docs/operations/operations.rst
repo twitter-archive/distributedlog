@@ -145,7 +145,7 @@ A CLI is provided for inspecting DistributedLog streams and metadata.
 These variable can also be set in conf/dlogenv.sh
 
 Create a stream
----------------
+_______________
 
 To create a stream:
 
@@ -155,7 +155,7 @@ To create a stream:
 
 
 List the streams
-----------------
+________________
 
 To list all the streams under a given DistributedLog namespace:
 
@@ -164,7 +164,7 @@ To list all the streams under a given DistributedLog namespace:
    dlog tool list -u <DL URI>
 
 Show stream's information
--------------------------
+_________________________
 
 To view the metadata associated with a stream:
 
@@ -174,7 +174,7 @@ To view the metadata associated with a stream:
 
 
 Dump a stream
--------------
+_____________
 
 To dump the items inside a stream:
 
@@ -183,7 +183,7 @@ To dump the items inside a stream:
    dlog tool dump -u <DL URI> -s <STREAM NAME> -o <START TXN ID> -l <NUM RECORDS>
 
 Delete a stream
----------------
+_______________
 
 To delete a stream, run:
 
@@ -193,7 +193,7 @@ To delete a stream, run:
 
 
 Truncate a stream
------------------
+_________________
 
 Truncate the streams under a given DistributedLog namespace. You could specify a filter to match the streams that you want to truncate.
 
