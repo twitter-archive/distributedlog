@@ -12,7 +12,7 @@ struct ReadPosition {
 }
 
 // Worker -> Coordinator: Renew Lease
-struct ReadPositions {
+struct UpdateReadPositionsRequest {
     1: required map<string, ReadPosition> positions
 }
 
@@ -37,3 +37,19 @@ struct StopReadResponse {
 }
 
 //
+// Messages
+//
+
+// Coordinator -> Worker: Command Request
+struct ReaderCommandRequest {
+    1: required i32 type
+    2: optional StartReadRequest start_read_request
+    3: optional StopReadRequest stop_read_request
+}
+
+// Worker -> Coordinator: Command Response
+struct ReaderCommandResponse {
+    1: required i32 type
+    2: optional StartReadResponse start_read_response
+    3: optional StopReadResponse stop_read_response
+}

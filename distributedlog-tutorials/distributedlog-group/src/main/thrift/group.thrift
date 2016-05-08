@@ -19,16 +19,12 @@ namespace java com.twitter.distributedlog.thrift.group
 // - Control Channel: Coordinator -> Worker
 // 
 
-// Worker -> Coordinator
-struct MembershipMessage {
-    1: required i32 type;
-
+// Coordinator -> Coordinator
+struct CoordinatorBootstrapRequest {
+    1: required string identity
 }
 
-
-
-// Worker -> Coordinator
-struct JoinGroupRequest {
+// Worker -> Coordinator struct JoinGroupRequest {
     1: required string identity
 }
 
@@ -59,24 +55,49 @@ struct RenewLeaseRequest {
 struct RenewLeaseResponse {
     1: required string identity
     2: required i32 code
-    2: optional i64 lease_duration
+    3: optional i64 lease_duration
 }
 
 // Coordinator -> Worker
 struct CommandRequest {
     1: required string identity
-    2. optional binary command
+    2: optional binary command
 }
 
 // Worker -> Coordinator
 struct CommandResponse {
     1: required string identity
-    2. optional binary response
+    2: optional binary response
 }
 
 // Coordinator
 
 struct SnapshotRequest {
-    1: required i32 type;
+    1: required i32 type
     2: optional binary snapshot
+    3: optional binary membership_channel_dlsn
 }
+
+//
+// Messages
+//
+
+// Worker -> Coordinator
+struct MembershipMessage {
+    1: required i32 type
+    2: optional JoinGroupRequest join_group_request
+    3: optional LeaveGroupRequest leave_group_request
+    4: optional RenewLeaseRequest renew_lease_request
+    5: optional CommandResponse command_response
+}
+
+// Coordinator -> Worker
+struct ControlMessage {
+    1: required i32 type
+    2: optional JoinGroupResponse join_group_response
+    3: optional LeaveGroupResponse leave_group_response
+    4: optional RenewLeaseResponse renew_lease_response
+    5: optional CommandRequest command_request
+    6: optional CoordinatorBootstrapRequest coordinator_bootstrap_request
+}
+
