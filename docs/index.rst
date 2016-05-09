@@ -6,6 +6,7 @@ Documentation
 .. toctree::
    :maxdepth: 2
 
+   download
    basics/main
    api/main
    configuration/main
