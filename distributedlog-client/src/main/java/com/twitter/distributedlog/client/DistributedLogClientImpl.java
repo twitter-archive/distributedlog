@@ -24,7 +24,7 @@ import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecordSetBuffer;
-import com.twitter.distributedlog.ProtocolUtils;
+import com.twitter.distributedlog.util.ProtocolUtils;
 import com.twitter.distributedlog.client.proxy.HostProvider;
 import com.twitter.distributedlog.client.proxy.ProxyClient;
 import com.twitter.distributedlog.client.proxy.ProxyClientManager;

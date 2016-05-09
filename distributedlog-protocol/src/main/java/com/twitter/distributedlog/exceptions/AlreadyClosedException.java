@@ -15,20 +15,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.exceptions;
 
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 
 /**
- * Thrown when there's a failure to read an edit log op from disk when loading
- * edits.
+ * Thrown when the distributed log manager has already been closed
+ * (connections have been torn down)
  */
-public class LogReadException extends DLException {
+public class AlreadyClosedException extends DLException {
 
-    private static final long serialVersionUID = 302945709106128177L;
+    private static final long serialVersionUID = -4721864322739563725L;
 
-    public LogReadException(String message) {
-        super(StatusCode.LOG_READ_ERROR, message);
+    public AlreadyClosedException(String message) {
+        super(StatusCode.ALREADY_CLOSED, message);
     }
 }

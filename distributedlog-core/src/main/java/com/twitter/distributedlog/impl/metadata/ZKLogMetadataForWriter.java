@@ -20,7 +20,7 @@ package com.twitter.distributedlog.impl.metadata;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.twitter.distributedlog.DistributedLogConstants;
-import com.twitter.distributedlog.LogNotFoundException;
+import com.twitter.distributedlog.exceptions.LogNotFoundException;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
 import com.twitter.distributedlog.exceptions.LogExistsException;

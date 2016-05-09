@@ -17,7 +17,6 @@
  */
 package com.twitter.distributedlog.exceptions;
 
-import com.twitter.distributedlog.LockingException;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 
 public class OwnershipAcquireFailedException extends LockingException {

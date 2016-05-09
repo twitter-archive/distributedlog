@@ -15,20 +15,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.exceptions;
 
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 
 /**
- * Thrown when the distributed log manager has already been closed
- * (connections have been torn down)
+ * Thrown when the send to bookkeeper fails
+ * This is thrown by the next attempt to write, send or flush
  */
-public class AlreadyClosedException extends DLException {
+public class BKTransmitException extends DLException {
 
-    private static final long serialVersionUID = -4721864322739563725L;
+    private static final long serialVersionUID = -5796100450432076091L;
 
-    public AlreadyClosedException(String message) {
-        super(StatusCode.ALREADY_CLOSED, message);
+    final int bkRc;
+
+    public BKTransmitException(String message, int bkRc) {
+        super(StatusCode.BK_TRANSMIT_ERROR, message + " : " + bkRc);
+        this.bkRc = bkRc;
     }
+
+    public int getBKResultCode() {
+        return this.bkRc;
+    }
+
 }

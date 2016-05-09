@@ -17,7 +17,7 @@
  */
 package com.twitter.distributedlog.lock;
 
-import com.twitter.distributedlog.LockingException;
+import com.twitter.distributedlog.exceptions.LockingException;
 import com.twitter.distributedlog.lock.ZKSessionLock.State;
 import org.apache.commons.lang3.tuple.Pair;
 

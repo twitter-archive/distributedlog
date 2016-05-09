@@ -20,11 +20,12 @@ package com.twitter.distributedlog.logsegment;
 import com.google.common.annotations.Beta;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
+import com.twitter.distributedlog.exceptions.BKTransmitException;
+import com.twitter.distributedlog.exceptions.LockingException;
 import com.twitter.distributedlog.io.AsyncAbortable;
 import com.twitter.distributedlog.io.AsyncCloseable;
 import com.twitter.util.Future;
 
-import java.io.Closeable;
 import java.io.IOException;
 
 /**
@@ -48,8 +49,8 @@ public interface LogSegmentWriter extends AsyncCloseable, AsyncAbortable {
      *         otherwise, exceptions are returned.
      * @throws com.twitter.distributedlog.exceptions.LogRecordTooLongException if log record is too long
      * @throws com.twitter.distributedlog.exceptions.InvalidEnvelopedEntryException on invalid enveloped entry
-     * @throws com.twitter.distributedlog.LockingException if failed to acquire lock for the writer
-     * @throws com.twitter.distributedlog.BKTransmitException if failed to transmit data to bk
+     * @throws LockingException if failed to acquire lock for the writer
+     * @throws BKTransmitException if failed to transmit data to bk
      * @throws com.twitter.distributedlog.exceptions.WriteException if failed to write to bk
      */
     public Future<DLSN> asyncWrite(LogRecord record);

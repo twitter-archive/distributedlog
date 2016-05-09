@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.exceptions.InvalidStreamNameException;
+import com.twitter.distributedlog.exceptions.LockingException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.impl.BKDLUtils;
 import com.twitter.distributedlog.namespace.DistributedLogNamespace;

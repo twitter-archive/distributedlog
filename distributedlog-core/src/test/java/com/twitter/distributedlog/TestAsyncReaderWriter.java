@@ -33,6 +33,8 @@ import com.google.common.collect.Lists;
 import com.twitter.distributedlog.config.ConcurrentBaseConfiguration;
 import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
+import com.twitter.distributedlog.exceptions.BKTransmitException;
+import com.twitter.distributedlog.exceptions.LockingException;
 import com.twitter.distributedlog.io.CompressionCodec;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Promise;

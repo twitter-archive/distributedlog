@@ -20,6 +20,7 @@ package com.twitter.distributedlog;
 import java.io.ByteArrayInputStream;
 import java.net.URI;
 
+import com.twitter.distributedlog.exceptions.BKTransmitException;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
