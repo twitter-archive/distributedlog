@@ -10,4 +10,5 @@
 # Maven
 lib/
 log/
+logs/
 target/
