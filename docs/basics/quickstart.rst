@@ -6,7 +6,7 @@ This tutorial assumes you are starting from fresh and have no existing BookKeepe
 Step 1: Download the binary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Download the stable version of `DistributedLog` and un-zip it.
+:doc:`Download <../download>` the stable version of `DistributedLog` and un-zip it.
 
 ::
 
@@ -25,7 +25,7 @@ starts a zookeeper server and `N` bookies (N is 3 by default).
 ::
 
     // Start the local sandbox instance at port `7000`
-    > ./distributedlog-core/bin/dlog local 7000
+    > ./distributedlog-service/bin/dlog local 7000
     DistributedLog Sandbox is running now. You could access distributedlog://127.0.0.1:7000
 
 
