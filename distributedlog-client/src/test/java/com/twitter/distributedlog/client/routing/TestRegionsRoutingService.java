@@ -18,7 +18,7 @@
 package com.twitter.distributedlog.client.routing;
 
 import com.google.common.collect.Sets;
-import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
+import com.twitter.distributedlog.client.resolver.DefaultRegionResolver;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.finagle.NoBrokersAvailableException;
 import org.junit.Test;
@@ -56,7 +56,7 @@ public class TestRegionsRoutingService {
         RegionsRoutingService regionsRoutingService =
                 RegionsRoutingService.newBuilder()
                     .routingServiceBuilders(routingServiceBuilders)
-                    .resolver(new TwitterRegionResolver(regionMap))
+                    .resolver(new DefaultRegionResolver(regionMap))
                     .build();
         regionsRoutingService.registerListener(new RoutingService.RoutingListener() {
             @Override
@@ -94,19 +94,19 @@ public class TestRegionsRoutingService {
 
         RegionsRoutingService regionsRoutingService =
                 RegionsRoutingService.newBuilder()
-                    .resolver(new TwitterRegionResolver(regionMap))
+                    .resolver(new DefaultRegionResolver(regionMap))
                     .routingServiceBuilders(routingServiceBuilders)
                     .build();
         regionsRoutingService.startService();
 
         RoutingService.RoutingContext routingContext =
-                RoutingService.RoutingContext.of(new TwitterRegionResolver())
+                RoutingService.RoutingContext.of(new DefaultRegionResolver())
                         .addTriedHost(new InetSocketAddress("127.0.0.1", 3183), StatusCode.WRITE_EXCEPTION);
         assertEquals(new InetSocketAddress("127.0.0.1", 3181),
                 regionsRoutingService.getHost("any", routingContext));
 
         routingContext =
-                RoutingService.RoutingContext.of(new TwitterRegionResolver())
+                RoutingService.RoutingContext.of(new DefaultRegionResolver())
                         .addTriedHost(new InetSocketAddress("127.0.0.1", 3181), StatusCode.WRITE_EXCEPTION);
         assertEquals(new InetSocketAddress("127.0.0.1", 3182),
                 regionsRoutingService.getHost("any", routingContext));

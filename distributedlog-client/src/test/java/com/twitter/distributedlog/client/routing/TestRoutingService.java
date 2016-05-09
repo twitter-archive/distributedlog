@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
+import com.twitter.distributedlog.client.resolver.DefaultRegionResolver;
 import com.twitter.finagle.Address;
 import com.twitter.finagle.Addresses;
 import com.twitter.finagle.addr.WeightedAddress;
@@ -120,7 +120,7 @@ public class TestRoutingService {
             for (int j = 0; j < 5; j++) {
                 String stream = "TestStream-" + i + "-" + j;
                 mapping.add(routingService.getHost(stream,
-                        RoutingService.RoutingContext.of(new TwitterRegionResolver())));
+                        RoutingService.RoutingContext.of(new DefaultRegionResolver())));
             }
         }
 

@@ -24,7 +24,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-public class TwitterRegionResolver implements RegionResolver {
+public class DefaultRegionResolver implements RegionResolver {
 
     private static final String DEFAULT_REGION = "default-region";
 
@@ -33,10 +33,10 @@ public class TwitterRegionResolver implements RegionResolver {
     private final ConcurrentMap<SocketAddress, String> regionMap =
             new ConcurrentHashMap<SocketAddress, String>();
 
-    public TwitterRegionResolver() {
+    public DefaultRegionResolver() {
     }
 
-    public TwitterRegionResolver(Map<SocketAddress, String> regionOverrides) {
+    public DefaultRegionResolver(Map<SocketAddress, String> regionOverrides) {
         this.regionOverrides.putAll(regionOverrides);
     }
 

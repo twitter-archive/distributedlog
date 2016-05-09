@@ -24,7 +24,7 @@ import com.twitter.distributedlog.client.ClientConfig;
 import com.twitter.distributedlog.client.proxy.MockDistributedLogServices.MockBasicService;
 import com.twitter.distributedlog.client.proxy.MockDistributedLogServices.MockServerInfoService;
 import com.twitter.distributedlog.client.proxy.MockProxyClientBuilder.MockProxyClient;
-import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
+import com.twitter.distributedlog.client.resolver.DefaultRegionResolver;
 import com.twitter.distributedlog.client.stats.ClientStats;
 import com.twitter.distributedlog.thrift.service.ServerInfo;
 import com.twitter.finagle.stats.NullStatsReceiver;
@@ -86,7 +86,7 @@ public class TestProxyClientManager {
                 clientConfig.getRedirectBackoffStartMs(),
                 TimeUnit.MILLISECONDS);
         return new ProxyClientManager(clientConfig, builder, dlTimer, hostProvider,
-                new ClientStats(NullStatsReceiver.get(), false, new TwitterRegionResolver()));
+                new ClientStats(NullStatsReceiver.get(), false, new DefaultRegionResolver()));
     }
 
     private static SocketAddress createSocketAddress(int port) {

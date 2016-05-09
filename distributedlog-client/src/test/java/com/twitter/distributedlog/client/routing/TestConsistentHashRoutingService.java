@@ -20,7 +20,7 @@ package com.twitter.distributedlog.client.routing;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
+import com.twitter.distributedlog.client.resolver.DefaultRegionResolver;
 import com.twitter.distributedlog.service.DLSocketAddress;
 import com.twitter.finagle.ChannelWriteException;
 import com.twitter.finagle.Address;
@@ -62,7 +62,7 @@ public class TestConsistentHashRoutingService {
         routingService.startService();
 
         RoutingService.RoutingContext routingContext =
-                RoutingService.RoutingContext.of(new TwitterRegionResolver());
+                RoutingService.RoutingContext.of(new DefaultRegionResolver());
 
         String streamName = "test-blackout-host";
         assertEquals(inetAddress, routingService.getHost(streamName, routingContext));

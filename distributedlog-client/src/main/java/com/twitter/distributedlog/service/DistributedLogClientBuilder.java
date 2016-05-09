@@ -24,7 +24,7 @@ import com.twitter.distributedlog.client.ClientConfig;
 import com.twitter.distributedlog.client.DistributedLogClientImpl;
 import com.twitter.distributedlog.client.monitor.MonitorServiceClient;
 import com.twitter.distributedlog.client.resolver.RegionResolver;
-import com.twitter.distributedlog.client.resolver.TwitterRegionResolver;
+import com.twitter.distributedlog.client.resolver.DefaultRegionResolver;
 import com.twitter.distributedlog.client.routing.RegionsRoutingService;
 import com.twitter.distributedlog.client.routing.RoutingService;
 import com.twitter.distributedlog.client.routing.RoutingUtils;
@@ -45,7 +45,7 @@ public final class DistributedLogClientBuilder {
     private StatsReceiver _streamStatsReceiver = new NullStatsReceiver();
     private ClientConfig _clientConfig = new ClientConfig();
     private boolean _enableRegionStats = false;
-    private final RegionResolver _regionResolver = new TwitterRegionResolver();
+    private final RegionResolver _regionResolver = new DefaultRegionResolver();
 
     /**
      * Create a client builder
