@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.BKTransmitException;
 import com.twitter.distributedlog.io.Abortables;
 import com.twitter.distributedlog.util.FutureUtils;
 import org.apache.bookkeeper.client.BKException;

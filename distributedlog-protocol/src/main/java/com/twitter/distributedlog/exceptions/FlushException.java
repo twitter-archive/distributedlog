@@ -15,28 +15,35 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.exceptions;
 
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 
-/**
- * Thrown when the send to bookkeeper fails
- * This is thrown by the next attempt to write, send or flush
- */
-public class BKTransmitException extends DLException {
+public class FlushException extends DLException {
 
-    private static final long serialVersionUID = -5796100450432076091L;
+    private final long lastTxIdWritten;
+    private final long lastTxIdAcknowledged;
 
-    final int bkRc;
+    private static final long serialVersionUID = -9060360360261130489L;
 
-    public BKTransmitException(String message, int bkRc) {
-        super(StatusCode.BK_TRANSMIT_ERROR, message + " : " + bkRc);
-        this.bkRc = bkRc;
+    public FlushException(String message, long lastTxIdWritten, long lastTxIdAcknowledged) {
+        super(StatusCode.FLUSH_TIMEOUT, message);
+        this.lastTxIdWritten = lastTxIdWritten;
+        this.lastTxIdAcknowledged = lastTxIdAcknowledged;
     }
 
-    public int getBKResultCode() {
-        return this.bkRc;
+    public FlushException(String message, long lastTxIdWritten, long lastTxIdAcknowledged, Throwable cause) {
+        super(StatusCode.FLUSH_TIMEOUT, message, cause);
+        this.lastTxIdWritten = lastTxIdWritten;
+        this.lastTxIdAcknowledged = lastTxIdAcknowledged;
     }
 
+    public long getLastTxIdWritten() {
+        return lastTxIdWritten;
+    }
+
+    public long getLastTxIdAcknowledged() {
+        return lastTxIdAcknowledged;
+    }
 }

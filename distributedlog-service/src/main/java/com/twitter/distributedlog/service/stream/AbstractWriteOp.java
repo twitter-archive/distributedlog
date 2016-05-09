@@ -17,13 +17,11 @@
  */
 package com.twitter.distributedlog.service.stream;
 
-import com.twitter.distributedlog.ProtocolUtils;
+import com.twitter.distributedlog.util.ProtocolUtils;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.util.Future;
-
-import java.nio.ByteBuffer;
 
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.stats.OpStatsLogger;

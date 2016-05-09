@@ -19,7 +19,7 @@ package com.twitter.distributedlog.lock;
 
 import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.util.FailpointUtils;
-import com.twitter.distributedlog.LockingException;
+import com.twitter.distributedlog.exceptions.LockingException;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;

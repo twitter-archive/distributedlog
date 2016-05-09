@@ -21,7 +21,7 @@ import com.google.common.annotations.Beta;
 import com.google.common.base.Optional;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
-import com.twitter.distributedlog.LogNotFoundException;
+import com.twitter.distributedlog.exceptions.LogNotFoundException;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;

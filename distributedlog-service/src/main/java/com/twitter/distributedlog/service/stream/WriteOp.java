@@ -20,7 +20,7 @@ package com.twitter.distributedlog.service.stream;
 import com.twitter.distributedlog.AsyncLogWriter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.LogRecord;
-import com.twitter.distributedlog.ProtocolUtils;
+import com.twitter.distributedlog.util.ProtocolUtils;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.service.config.ServerConfiguration;
 import com.twitter.distributedlog.exceptions.DLException;

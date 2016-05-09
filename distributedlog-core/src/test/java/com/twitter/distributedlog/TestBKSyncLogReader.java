@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.LogNotFoundException;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;

@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.net.URI;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.twitter.distributedlog.exceptions.AlreadyClosedException;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.util.DLUtils;

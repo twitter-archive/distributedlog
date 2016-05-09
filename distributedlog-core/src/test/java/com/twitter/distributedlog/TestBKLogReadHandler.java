@@ -18,6 +18,7 @@
 package com.twitter.distributedlog;
 
 import com.google.common.base.Optional;
+import com.twitter.distributedlog.exceptions.LogNotFoundException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.Utils;

@@ -20,7 +20,7 @@ package com.twitter.distributedlog.service;
 import com.google.common.collect.Lists;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
-import com.twitter.distributedlog.ProtocolUtils;
+import com.twitter.distributedlog.util.ProtocolUtils;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.acl.DefaultAccessControlManager;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;

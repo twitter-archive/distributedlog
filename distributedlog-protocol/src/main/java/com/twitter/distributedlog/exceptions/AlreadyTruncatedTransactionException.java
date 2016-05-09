@@ -15,19 +15,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.twitter.distributedlog.lock;
+package com.twitter.distributedlog.exceptions;
 
-import com.twitter.distributedlog.exceptions.LockingException;
+import com.twitter.distributedlog.exceptions.DLException;
+import com.twitter.distributedlog.thrift.service.StatusCode;
 
 /**
- * Exception indicates that epoch already changed when executing a given
- * {@link LockAction}.
+ * Thrown when the transaction Id specified in the API is in the range that has already been
+ * truncated
  */
-public class EpochChangedException extends LockingException {
+public class AlreadyTruncatedTransactionException extends DLException {
 
-    private static final long serialVersionUID = 8775257025963870331L;
+    private static final long serialVersionUID = 4287238797065959977L;
 
-    public EpochChangedException(String lockPath, int expectedEpoch, int currentEpoch) {
-        super(lockPath, "lock " + lockPath + " already moved to epoch " + currentEpoch + ", expected " + expectedEpoch);
+    public AlreadyTruncatedTransactionException(String message) {
+        super(StatusCode.TRUNCATED_TRANSACTION, message);
     }
 }

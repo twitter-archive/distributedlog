@@ -15,12 +15,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.util;
 
-import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.zip.CRC32;
 
+import com.twitter.distributedlog.DLSN;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

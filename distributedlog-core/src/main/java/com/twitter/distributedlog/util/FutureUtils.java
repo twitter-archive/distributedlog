@@ -17,9 +17,9 @@
  */
 package com.twitter.distributedlog.util;
 
-import com.twitter.distributedlog.BKTransmitException;
+import com.twitter.distributedlog.exceptions.BKTransmitException;
 import com.twitter.distributedlog.DistributedLogConstants;
-import com.twitter.distributedlog.LockingException;
+import com.twitter.distributedlog.exceptions.LockingException;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.UnexpectedException;
@@ -37,7 +37,6 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.runtime.AbstractPartialFunction;
 import scala.runtime.BoxedUnit;
 
 import javax.annotation.Nullable;

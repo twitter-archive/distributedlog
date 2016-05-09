@@ -17,6 +17,9 @@
  */
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.exceptions.LogEmptyException;
+import com.twitter.distributedlog.exceptions.LogNotFoundException;
+import com.twitter.distributedlog.exceptions.LogReadException;
 import com.twitter.distributedlog.util.FutureUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

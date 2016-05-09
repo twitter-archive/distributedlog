@@ -15,20 +15,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.twitter.distributedlog;
+package com.twitter.distributedlog.exceptions;
 
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 
 /**
- * Thrown when the transaction Id specified in the API is in the range that has already been
- * truncated
+ * Thrown when there's a failure to read an edit log op from disk when loading
+ * edits.
  */
-public class AlreadyTruncatedTransactionException extends DLException {
+public class LogReadException extends DLException {
 
-    private static final long serialVersionUID = 4287238797065959977L;
+    private static final long serialVersionUID = 302945709106128177L;
 
-    public AlreadyTruncatedTransactionException(String message) {
-        super(StatusCode.TRUNCATED_TRANSACTION, message);
+    public LogReadException(String message) {
+        super(StatusCode.LOG_READ_ERROR, message);
     }
 }

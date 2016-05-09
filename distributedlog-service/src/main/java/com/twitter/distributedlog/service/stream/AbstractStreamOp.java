@@ -20,23 +20,18 @@ package com.twitter.distributedlog.service.stream;
 import com.google.common.base.Stopwatch;
 
 import com.twitter.distributedlog.util.Sequencer;
-import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
 import com.twitter.util.Return;
 import com.twitter.util.Try;
 import com.twitter.distributedlog.AsyncLogWriter;
-import com.twitter.distributedlog.ProtocolUtils;
 import com.twitter.distributedlog.exceptions.ChecksumFailedException;
 import com.twitter.distributedlog.exceptions.DLException;
 import com.twitter.distributedlog.exceptions.OwnershipAcquireFailedException;
-import com.twitter.distributedlog.exceptions.UnexpectedException;
 import com.twitter.distributedlog.service.ResponseUtils;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 
-import java.nio.ByteBuffer;
-import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.stats.OpStatsLogger;
