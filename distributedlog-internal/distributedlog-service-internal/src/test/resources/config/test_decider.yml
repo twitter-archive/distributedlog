@@ -1,6 +1,0 @@
-feature_1:
-  default_availability: 10000
-feature_2:
-  default_availability: 5000
-feature_3:
-  default_availability: 0
