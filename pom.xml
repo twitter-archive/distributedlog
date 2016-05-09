@@ -41,13 +41,8 @@
     <module>distributedlog-service</module>
     <module>distributedlog-benchmark</module>
     <module>distributedlog-example</module>
-<<<<<<< HEAD
-    <module>distributedlog-internal</module>
-=======
-    <module>distributedlog-example-internal</module>
-    <module>distributedlog-core-v2</module>
     <module>distributedlog-tutorials</module>
->>>>>>> sijie/tutorial/part2_basic_tutorials
+    <module>distributedlog-internal</module>
   </modules>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
