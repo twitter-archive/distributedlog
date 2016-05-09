@@ -30,3 +30,12 @@
 
 # Add extra paths to the dlog classpath
 # DLOG_EXTRA_CLASSPATH=
+
+# Configure the root logger
+# DLOG_ROOT_LOGGER=
+
+# Configure the log dir
+# DLOG_LOG_DIR=
+
+# Configure the log file
+# DLOG_LOG_FILE=
