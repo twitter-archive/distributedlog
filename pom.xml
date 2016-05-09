@@ -111,6 +111,22 @@
           <forkedProcessTimeoutInSeconds>1800</forkedProcessTimeoutInSeconds>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.apache.rat</groupId>
+        <artifactId>apache-rat-plugin</artifactId>
+        <version>0.7</version>
+        <configuration>
+          <excludes>
+            <exclude>docs/**/*</exclude>
+            <exclude>.git/**/*</exclude>
+            <exclude>**/.svn/**/*</exclude>
+            <exclude>ChangeLog</exclude>
+            <exclude>**/README.md</exclude>
+            <exclude>**/apidocs/*</exclude>
+	    <exclude>test-patch/**/*</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
   <repositories>
