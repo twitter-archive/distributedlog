@@ -29,7 +29,8 @@ class TwitterWriterWorker extends WriterWorker {
                         boolean thriftmux,
                         boolean handshakeWithClientInfo,
                         int sendBufferSize,
-                        int recvBufferSize) {
+                        int recvBufferSize,
+                        boolean enableBatching) {
         super(streamPrefix,
                 startStreamId,
                 endStreamId,
@@ -46,7 +47,8 @@ class TwitterWriterWorker extends WriterWorker {
                 thriftmux,
                 handshakeWithClientInfo,
                 sendBufferSize,
-                recvBufferSize);
+                recvBufferSize,
+                enableBatching);
     }
 
     @Override

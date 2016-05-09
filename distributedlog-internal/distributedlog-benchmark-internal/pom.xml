@@ -5,7 +5,7 @@
   <parent>
     <groupId>com.twitter</groupId>
     <artifactId>distributedlog</artifactId>
-    <version>0.3.50-SNAPSHOT</version>
+    <version>0.3.51-SNAPSHOT</version>
   </parent>
   <artifactId>distributedlog-benchmark-internal</artifactId>
   <name>DistributedLog Benchmark Internal</name>

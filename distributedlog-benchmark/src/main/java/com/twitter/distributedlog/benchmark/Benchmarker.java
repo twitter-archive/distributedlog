@@ -297,7 +297,8 @@ public class Benchmarker {
             boolean thriftmux,
             boolean handshakeWithClientInfo,
             int sendBufferSize,
-            int recvBufferSize) {
+            int recvBufferSize,
+            boolean enableBatching) {
         return new WriterWorker(
                 streamPrefix,
                 startStreamId,
@@ -315,7 +316,8 @@ public class Benchmarker {
                 thriftmux,
                 handshakeWithClientInfo,
                 sendBufferSize,
-                recvBufferSize);
+                recvBufferSize,
+                enableBatching);
     }
 
     Worker runDLWriter() throws IOException {
