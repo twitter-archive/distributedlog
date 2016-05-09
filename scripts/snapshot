@@ -1,0 +1,54 @@
+#!/bin/bash
+
+BASEDIR=$(dirname "$0")
+DISTRIBUTEDLOG_ROOT="${BASEDIR}/.."
+
+set -e
+shopt -s dotglob
+
+cd ${DISTRIBUTEDLOG_ROOT}
+
+gitsha=`git rev-parse HEAD`
+
+# clean the dist
+find . -name lib | xargs rm -r
+rm -rf dist/*
+
+# create the layout
+for module in distributedlog-service distributedlog-benchmark distributedlog-tutorials/distributedlog-basic distributedlog-tutorials/distributedlog-messaging; do
+    mkdir -p dist/release/${module}/{bin,conf,lib}
+done
+
+# build the package
+mvn clean install -Ptwitter-ostrich-provider -DskipTests
+
+# build the distributedlog-service
+cp -rf distributedlog-service/bin/* dist/release/distributedlog-service/bin
+cp -rf distributedlog-service/conf/* dist/release/distributedlog-service/conf
+cp -rf distributedlog-service/lib/* dist/release/distributedlog-service/lib
+cp -rf distributedlog-service/target/distributedlog-service-*.jar dist/release/distributedlog-service
+
+# build the distributedlog-benchmark
+cp -rf distributedlog-benchmark/bin/* dist/release/distributedlog-benchmark/bin
+cp -rf distributedlog-benchmark/conf/* dist/release/distributedlog-benchmark/conf
+cp -rf distributedlog-benchmark/lib/* dist/release/distributedlog-benchmark/lib
+cp -rf distributedlog-benchmark/target/distributedlog-benchmark-*.jar dist/release/distributedlog-benchmark
+
+# build the distributedlog-tutorial/basic
+cp -rf distributedlog-tutorials/distributedlog-basic/bin/* dist/release/distributedlog-tutorials/distributedlog-basic/bin
+cp -rf distributedlog-tutorials/distributedlog-basic/conf/* dist/release/distributedlog-tutorials/distributedlog-basic/conf
+cp -rf distributedlog-tutorials/distributedlog-basic/lib/* dist/release/distributedlog-tutorials/distributedlog-basic/lib
+cp -rf distributedlog-tutorials/distributedlog-basic/target/distributedlog-basic-*.jar dist/release/distributedlog-tutorials/distributedlog-basic
+
+# build the distributedlog-tutorial/messaging
+cp -rf distributedlog-tutorials/distributedlog-messaging/bin/* dist/release/distributedlog-tutorials/distributedlog-messaging/bin
+cp -rf distributedlog-tutorials/distributedlog-messaging/conf/* dist/release/distributedlog-tutorials/distributedlog-messaging/conf
+cp -rf distributedlog-tutorials/distributedlog-messaging/lib/* dist/release/distributedlog-tutorials/distributedlog-messaging/lib
+cp -rf distributedlog-tutorials/distributedlog-messaging/target/distributedlog-messaging-*.jar dist/release/distributedlog-tutorials/distributedlog-messaging
+
+# release
+cd dist/release
+zip -r distributedlog-all-${gitsha}.zip distributedlog-service distributedlog-benchmark distributedlog-tutorials > /dev/null
+zip -r distributedlog-service-${gitsha}.zip distributedlog-service >/dev/null
+zip -r distributedlog-benchmark-${gitsha}.zip distributedlog-benchmark >/dev/null
+zip -r distributedlog-tutorials-${gitsha}.zip distributedlog-tutorials >/dev/null
