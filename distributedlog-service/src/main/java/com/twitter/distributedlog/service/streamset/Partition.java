@@ -41,7 +41,8 @@ public class Partition {
 
     /**
      * Get the `virtual` stream name.
-     * @return
+     *
+     * @return the stream name.
      */
     public String getStream() {
         return stream;

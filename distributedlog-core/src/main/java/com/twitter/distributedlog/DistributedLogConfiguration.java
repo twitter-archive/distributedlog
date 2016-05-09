@@ -1329,7 +1329,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * <p>
      * The setting is only applied for v2 implementation.
      *
-     * @see {@link com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor} for more stats
+     * @see com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor
      * @return number of resource release threads used by distributedlog namespace.
      */
     public int getNumResourceReleaseThreads() {
@@ -1690,7 +1690,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * The compression type to use while sending data to bookkeeper.
      *
      * @return compression type to use
-     * @see com.twitter.distributedlog.util.CompressionCodec
+     * @see com.twitter.distributedlog.io.CompressionCodec
      */
     public String getCompressionType() {
         return getString(BKDL_COMPRESSION_TYPE, BKDL_COMPRESSION_TYPE_DEFAULT);
@@ -2935,8 +2935,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set the base config path for file feature provider.
      *
-     * @param conf
-     *          distributedlog configuration
      * @param configPath
      *          base config path for file feature provider.
      * @return distributedlog configuration
@@ -2959,7 +2957,6 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     /**
      * Set the overlay config path for file feature provider.
      *
-     * @param conf distributedlog configuration
      * @param configPath
      *          overlay config path for file feature provider.
      * @return distributedlog configuration

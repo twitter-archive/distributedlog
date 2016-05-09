@@ -27,8 +27,8 @@ public class CompressionUtils {
 
     /**
      * Get a cached compression codec instance for the specified type.
-     * @param type
-     * @return
+     * @param type compression codec type
+     * @return compression codec instance
      */
     public static CompressionCodec getCompressionCodec(CompressionCodec.Type type) {
         if (type == CompressionCodec.Type.LZ4) {
@@ -40,8 +40,8 @@ public class CompressionUtils {
 
     /**
      * Compression type value from string.
-     * @param compressionString
-     * @return
+     * @param compressionString compression codec presentation in string
+     * @return compression codec type
      */
     public static CompressionCodec.Type stringToType(String compressionString) {
         if (compressionString.equals(LZ4)) {

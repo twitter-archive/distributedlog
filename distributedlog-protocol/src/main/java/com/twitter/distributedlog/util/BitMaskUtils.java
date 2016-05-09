@@ -30,10 +30,10 @@ public class BitMaskUtils {
      * 1) 1010 -> 1000
      * 2) 1000 -> 1001
      *
-     * @param oldValue
-     * @param mask
-     * @param newValue
-     * @return
+     * @param oldValue expected old value
+     * @param mask the mask of the value for updates
+     * @param newValue new value to set
+     * @return updated value
      */
     public static long set(long oldValue, long mask, long newValue) {
         Preconditions.checkArgument(oldValue >= 0L && mask >= 0L && newValue >= 0L);
@@ -42,9 +42,10 @@ public class BitMaskUtils {
 
     /**
      * Get the bits where mask is 1
-     * @param value
-     * @param mask
-     * @return
+     *
+     * @param value value
+     * @param mask mask of the value
+     * @return the bit of the mask
      */
     public static long get(long value, long mask) {
         Preconditions.checkArgument(value >= 0L && mask >= 0L);

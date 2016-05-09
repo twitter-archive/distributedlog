@@ -60,7 +60,6 @@ public interface ServerSetWatcher {
      * changed.
      *
      * @param monitor the server set monitor to call back when the host set changes
-     * @return A command which, when executed, will stop monitoring the host set.
      * @throws MonitorException if there is a problem monitoring the host set
      */
     void watch(final ServerSetMonitor monitor) throws MonitorException;

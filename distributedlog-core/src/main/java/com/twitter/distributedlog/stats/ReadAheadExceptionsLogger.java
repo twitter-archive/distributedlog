@@ -23,11 +23,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Stats logger to log exceptions happened in {@link com.twitter.distributedlog.BKLogReadHandler.ReadAheadWorker}.
+ * Stats logger to log exceptions happened in {@link com.twitter.distributedlog.readahead.ReadAheadWorker}.
  * They are counters of exceptions happened on each read ahead phase:
  * <code>`scope`/exceptions/`phase`/`code`</code>. `scope` is the current scope of
  * stats logger, `phase` is the read ahead phase, while `code` is the exception code. Check
- * {@link com.twitter.distributedlog.BKLogReadHandler.ReadAheadPhase} for details about phases and
+ * {@link com.twitter.distributedlog.readahead.ReadAheadPhase} for details about phases and
  * {@link BKExceptionStatsLogger} for details about `code`.
  */
 public class ReadAheadExceptionsLogger {

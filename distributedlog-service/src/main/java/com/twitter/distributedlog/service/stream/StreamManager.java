@@ -22,7 +22,6 @@ import com.twitter.util.Future;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Manage lifecycle of streams.
@@ -86,14 +85,14 @@ public interface StreamManager {
 
     /**
      * Asynchronous delete method.
-     * @param stream name
+     * @param streamName stream name
      * @return future satisfied once delete complete
      */
     Future<Void> deleteAndRemoveAsync(String streamName);
 
     /**
      * Asynchronous close and uncache method.
-     * @param stream name
+     * @param streamName stream name
      * @return future satisfied once close and uncache complete
      */
     Future<Void> closeAndRemoveAsync(String streamName);

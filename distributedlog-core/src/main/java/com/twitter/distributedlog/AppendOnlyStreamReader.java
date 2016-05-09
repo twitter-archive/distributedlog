@@ -143,7 +143,8 @@ public class AppendOnlyStreamReader extends InputStream {
      * Position the reader at the given offset. If we fail to skip to the desired position
      * and don't hit end of stream, return false.
      *
-     * @throw EndOfStreamException if we attempt to skip past the end of the stream.
+     * @throws com.twitter.distributedlog.exceptions.EndOfStreamException if we attempt to
+     *         skip past the end of the stream.
      */
     public boolean skipTo(long position) throws IOException {
 

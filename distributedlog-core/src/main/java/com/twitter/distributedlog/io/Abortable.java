@@ -25,7 +25,7 @@ import java.io.IOException;
  * (such as open files). The abort happens when the object is in an error state,
  * which it couldn't be closed gracefully.
  *
- * @see {@link java.io.Closeable}
+ * @see java.io.Closeable
  * @since 0.3.32
  */
 public interface Abortable {

@@ -262,8 +262,9 @@ public class BKDLConfig implements DLConfig {
     }
 
     /**
-     * Whether the namespace is
-     * @return
+     * Whether the namespace is federated namespace
+     *
+     * @return true if the namespace is a federated namespace. otherwise false.
      */
     public boolean isFederatedNamespace() {
         return this.isFederatedNamespace;

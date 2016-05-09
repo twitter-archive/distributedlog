@@ -37,7 +37,6 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.runtime.AbstractPartialFunction;
 import scala.runtime.BoxedUnit;
 
 import javax.annotation.Nullable;
@@ -252,7 +251,7 @@ public class FutureUtils {
      *
      * @param throwable the cause of the exception
      * @return the bk exception return code. if the exception isn't bk exceptions,
-     *         it would return {@link BKException.Code.UnexpectedConditionException}.
+     *         it would return bk exception code.
      */
     public static int bkResultCode(Throwable throwable) {
         if (throwable instanceof BKException) {
@@ -419,7 +418,7 @@ public class FutureUtils {
      * Satisfy the <i>promise</i> with provided <i>cause</i> in an ordered scheduler.
      *
      * @param promise promise to satisfy
-     * @param cause cause to satisfy
+     * @param throwable cause to satisfy
      * @param scheduler the scheduler to satisfy the promise
      * @param key submit key of the ordered scheduler
      */

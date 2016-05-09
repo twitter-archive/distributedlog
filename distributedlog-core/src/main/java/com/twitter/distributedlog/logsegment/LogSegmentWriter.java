@@ -63,7 +63,7 @@ public interface LogSegmentWriter extends AsyncCloseable, AsyncAbortable {
      *
      * @param record single log record
      * @throws IOException when tried to flush the buffer.
-     * @see {@link LogSegmentWriter#asyncWrite}
+     * @see LogSegmentWriter#asyncWrite(LogRecord)
      */
     public void write(LogRecord record) throws IOException;
 
@@ -79,7 +79,7 @@ public interface LogSegmentWriter extends AsyncCloseable, AsyncAbortable {
      * Commit the current acknowledged data. It is the consequent operation of {@link #flush()},
      * which makes all the acknowledged data visible to
      *
-     * @return
+     * @return future representing the commit result.
      */
     public Future<Long> commit();
 

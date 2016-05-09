@@ -35,7 +35,6 @@ import com.twitter.distributedlog.exceptions.DLInterruptedException;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.function.VoidFunctions;
 import com.twitter.distributedlog.io.AsyncCloseable;
-import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.util.Await;
 import com.twitter.util.Future;
 import com.twitter.util.Promise;
@@ -100,7 +99,7 @@ public class Utils {
     /**
      * Synchronously create zookeeper path recursively and optimistically.
      *
-     * @see {@link #zkAsyncCreateFullPathOptimistic(ZooKeeperClient, String, byte[], List, CreateMode)}
+     * @see #zkAsyncCreateFullPathOptimistic(ZooKeeperClient, String, byte[], List, CreateMode)
      * @param zkc Zookeeper client
      * @param path Zookeeper full path
      * @param data Zookeeper data

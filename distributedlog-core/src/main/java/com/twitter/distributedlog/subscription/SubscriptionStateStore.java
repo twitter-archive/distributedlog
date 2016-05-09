@@ -28,7 +28,7 @@ public interface SubscriptionStateStore extends Closeable {
     /**
      * Get the last committed position stored for this subscription
      *
-     * @return
+     * @return future represents the last commit position
      */
     public Future<DLSN> getLastCommitPosition();
 
@@ -36,7 +36,7 @@ public interface SubscriptionStateStore extends Closeable {
      * Advances the position associated with the subscriber
      *
      * @param newPosition - new commit position
-     * @return
+     * @return future represents the advance result
      */
     public Future<BoxedUnit> advanceCommitPosition(DLSN newPosition);
 }

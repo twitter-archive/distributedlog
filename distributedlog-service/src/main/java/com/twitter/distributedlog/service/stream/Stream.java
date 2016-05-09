@@ -38,13 +38,13 @@ public interface Stream {
     /**
      * Get the stream's last recorded current owner (may be out of date). Used
      * as a hint for the client.
-     * @param last known owner for the stream
+     * @return last known owner for the stream
      */
     String getOwner();
 
     /**
      * Get the stream name.
-     * @param stream name
+     * @return stream name
      */
     String getStreamName();
 
@@ -58,6 +58,8 @@ public interface Stream {
     /**
      * Expensive initialization code run after stream has been allocated in
      * StreamManager.
+     *
+     * @throws IOException when encountered exception on initialization
      */
     void initialize() throws IOException;
 
@@ -76,12 +78,15 @@ public interface Stream {
 
     /**
      * Delete the stream from DL backend.
+     *
+     * @throws IOException when encountered exception on deleting the stream.
      */
     void delete() throws IOException;
 
     /**
      * Execute the stream operation against this stream.
-     * @param stream operation to execute
+     *
+     * @param op operation to execute
      */
     void submit(StreamOp op);
 }
