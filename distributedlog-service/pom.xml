@@ -45,39 +45,9 @@
     </dependency>
     <dependency>
       <groupId>org.apache.zookeeper</groupId>
-      <artifactId>zookeeper-server</artifactId>
+      <artifactId>zookeeper</artifactId>
       <version>${zookeeper.version}</version>
       <scope>test</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>com.google.guava</groupId>
-          <artifactId>guava</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-log4j12</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>org.apache.zookeeper</groupId>
-          <artifactId>zookeeper</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.twitter</groupId>
-          <artifactId>ostrich-jmx_2.11</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.twitter</groupId>
-          <artifactId>finagle-stats_2.11</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.twitter</groupId>
-          <artifactId>finagle-http-compat_2.11</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.twitter</groupId>
-          <artifactId>twitter-server_2.11</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
     <dependency>
       <groupId>junit</groupId>

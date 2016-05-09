@@ -67,7 +67,7 @@
     <dependency>
       <groupId>com.twitter</groupId>
       <artifactId>scrooge-core_2.11</artifactId>
-      <version>${birdcage.sha}</version>
+      <version>${scrooge.version}</version>
     </dependency>
   </dependencies>
   <build>

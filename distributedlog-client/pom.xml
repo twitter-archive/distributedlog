@@ -26,24 +26,9 @@
       <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
-      <groupId>com.twitter.common.zookeeper</groupId>
-      <artifactId>server-set</artifactId>
-      <version>1.0.110</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-jdk14</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.twitter.common</groupId>
-          <artifactId>service-thrift</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
-      <groupId>com.twitter.common</groupId>
-      <artifactId>service-thrift</artifactId>
-      <version>1.0.54</version>
+      <groupId>com.twitter</groupId>
+      <artifactId>finagle-serversets_2.11</artifactId>
+      <version>${birdcage.sha}</version>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
