@@ -10,14 +10,21 @@ DistributedLog maintains sequences of records in categories called *Logs* (aka *
 The processes that write records to a DL log are *writers*, while the processes that read
 from logs and process the records are *readers*.
 
-[figure about overview of DistributedLog]
+
+.. figure:: ../images/softwarestack.png
+   :align: center
+
+   Figure 1. DistributedLog Software Stack
 
 Logs
 ----
 
 A **log** is an ordered, immutable sequence of *log records*.
 
-[figure about "Anatomy of a Log"]
+.. figure:: ../images/datamodel.png
+   :align: center
+
+   Figure 2. Anatomy of a log stream
 
 Log Records
 ~~~~~~~~~~~
@@ -90,8 +97,6 @@ large number of readers. More on **Fan-in and Fan-out** in a second.
 
 Fan-in and Fan-out
 ------------------
-
-[Figure about "Fan-in and Fan-out"]
 
 The core of DistributedLog supports single-writer, multiple-readers semantics. The service layer
 built on top of the *DistributedLog Core* to support large scale of number of writers and readers.

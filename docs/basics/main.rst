@@ -5,5 +5,4 @@ Getting Started
    :maxdepth: 1
 
    introduction
-   usecases
    quickstart

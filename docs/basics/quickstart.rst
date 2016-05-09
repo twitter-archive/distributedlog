@@ -1,4 +1,7 @@
 Quick Start
 ===========
 
-(add tutorial on how to start with local setup)
+This tutorial assumes you are starting from fresh and have no existing BookKeeper or ZooKeeper data.
+
+
+
