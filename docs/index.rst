@@ -19,4 +19,5 @@ Documentation
    performance/main
    references/main
    tutorials/main
+   developer/main
    faq
