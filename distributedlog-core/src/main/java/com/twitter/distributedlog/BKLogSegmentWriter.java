@@ -659,7 +659,6 @@ class BKLogSegmentWriter implements LogSegmentWriter, AddCallback, Runnable, Siz
         } catch (IOException ioe) {
             // We may incorrectly report transmit failure here, but only if we happened to hit
             // packet/xmit size limit conditions AND fail flush above, which should happen rarely
-            // (PUBSUB-4498)
             if (null != result) {
                 LOG.error("Overriding first result with flush failure {}", result);
             }

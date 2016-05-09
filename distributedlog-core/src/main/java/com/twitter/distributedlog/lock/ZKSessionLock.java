@@ -932,7 +932,7 @@ class ZKSessionLock implements SessionLock {
             @Override
             public void onFailure(Throwable cause) {
                 // Delete failure is quite serious (causes lock leak) and should be
-                // handled better (PUBSUB-6076)
+                // handled better
                 LOG.error("lock node delete failed {} {}", lockId, lockPath);
                 promise.setValue(BoxedUnit.UNIT);
             }

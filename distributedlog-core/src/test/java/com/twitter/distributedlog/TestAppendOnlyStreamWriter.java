@@ -73,8 +73,7 @@ public class TestAppendOnlyStreamWriter extends TestDistributedLogBase {
         AppendOnlyStreamWriter writer = dlmwriter.getAppendOnlyStreamWriter();
         Future<DLSN> dlsnFuture = writer.write(DLMTestUtil.repeatString("abc", 11).getBytes());
 
-        // Temp solution for PUBSUB-2555. The real problem is the fsync completes before writes are submitted, so
-        // it never takes effect.
+        // The real problem is the fsync completes before writes are submitted, so it never takes effect.
         Thread.sleep(1000);
         assertFalse(dlsnFuture.isDefined());
         writer.force(false);
