@@ -119,11 +119,16 @@
           <excludes>
             <exclude>docs/**/*</exclude>
             <exclude>.git/**/*</exclude>
+            <exclude>.gitignore</exclude>
+            <exclude>.idea/**/*</exclude>
+            <exclude>dist/**/*</exclude>
             <exclude>**/.svn/**/*</exclude>
             <exclude>ChangeLog</exclude>
             <exclude>**/README.md</exclude>
             <exclude>**/apidocs/*</exclude>
-	    <exclude>test-patch/**/*</exclude>
+	    <exclude>GROUPS</exclude>
+	    <exclude>OWNERS</exclude>
+	    <exclude>CONFIG.ini</exclude>
           </excludes>
         </configuration>
       </plugin>
