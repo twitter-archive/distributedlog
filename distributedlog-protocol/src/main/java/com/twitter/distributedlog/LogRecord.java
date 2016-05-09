@@ -232,7 +232,7 @@ public class LogRecord {
      *
      * @return position of the record in the log segment.
      */
-    int getPositionWithinLogSegment() {
+    public int getPositionWithinLogSegment() {
         long ret = (metadata & LOGRECORD_METADATA_POSITION_MASK) >> LOGRECORD_METADATA_POSITION_SHIFT;
         if (ret < 0 || ret > Integer.MAX_VALUE) {
             throw new IllegalArgumentException

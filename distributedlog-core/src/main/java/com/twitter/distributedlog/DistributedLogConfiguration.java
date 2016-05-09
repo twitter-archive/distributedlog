@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.bk.QuorumConfig;
 import com.twitter.distributedlog.feature.DefaultFeatureProvider;
@@ -17,7 +19,6 @@ import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.configuration.PropertiesConfiguration;
 import org.apache.commons.configuration.SystemConfiguration;
 import org.apache.commons.lang.StringUtils;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,9 +26,6 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Set;
-
-import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
 
 /**
  * DistributedLog Configuration.
@@ -165,6 +163,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final String BKDL_NUM_WORKER_THREADS = "numWorkerThreads";
     public static final String BKDL_NUM_READAHEAD_WORKER_THREADS = "numReadAheadWorkerThreads";
     public static final String BKDL_NUM_LOCKSTATE_THREADS = "numLockStateThreads";
+    public static final String BKDL_NUM_RESOURCE_RELEASE_THREADS = "numResourceReleaseThreads";
     public static final String BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS = "schedulerShutdownTimeoutMs";
     public static final int BKDL_SCHEDULER_SHUTDOWN_TIMEOUT_MS_DEFAULT = 5000;
     public static final String BKDL_USE_DAEMON_THREAD = "useDaemonThread";
@@ -361,6 +360,15 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     //
 
     public static final String BKDL_FEATURE_PROVIDER_CLASS = "featureProviderClass";
+
+    //
+    // Settings for Configuration Based Feature Provider
+    //
+
+    public static final String BKDL_FILE_FEATURE_PROVIDER_BASE_CONFIG_PATH = "fileFeatureProviderBaseConfigPath";
+    public static final String BKDL_FILE_FEATURE_PROVIDER_BASE_CONFIG_PATH_DEFAULT = "decider.conf";
+    public static final String BKDL_FILE_FEATURE_PROVIDER_OVERLAY_CONFIG_PATH = "fileFeatureProviderOverlayConfigPath";
+    public static final String BKDL_FILE_FEATURE_PROVIDER_OVERLAY_CONFIG_PATH_DEFAULT = null;
 
     //
     // Settings for Namespaces
@@ -1293,6 +1301,34 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      */
     public DistributedLogConfiguration setNumLockStateThreads(int numLockStateThreads) {
         setProperty(BKDL_NUM_LOCKSTATE_THREADS, numLockStateThreads);
+        return this;
+    }
+
+    /**
+     * Get the number of resource release threads used by distributedlog namespace.
+     * By default it is 0 - the thread will be created dynamically by a executor service.
+     * The executor service is an unbounded pool. Application can use `total_tasks - completed_tasks`
+     * on monitoring the number of threads that are used for releasing resources.
+     * <p>
+     * The setting is only applied for v2 implementation.
+     *
+     * @see {@link com.twitter.distributedlog.util.MonitoredScheduledThreadPoolExecutor} for more stats
+     * @return number of resource release threads used by distributedlog namespace.
+     */
+    public int getNumResourceReleaseThreads() {
+        return getInt(BKDL_NUM_RESOURCE_RELEASE_THREADS, 0);
+    }
+
+    /**
+     * Set the number of resource release threads used by distributedlog manager factory.
+     *
+     * @param numResourceReleaseThreads
+     *          number of resource release threads used by distributedlog manager factory.
+     * @return configuration
+     * @see #getNumResourceReleaseThreads()
+     */
+    public DistributedLogConfiguration setNumResourceReleaseThreads(int numResourceReleaseThreads) {
+        setProperty(BKDL_NUM_RESOURCE_RELEASE_THREADS, numResourceReleaseThreads);
         return this;
     }
 
@@ -2869,6 +2905,54 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    /**
+     * Get the base config path for file feature provider.
+     *
+     * @return base config path for file feature provider.
+     */
+    public String getFileFeatureProviderBaseConfigPath() {
+        return getString(BKDL_FILE_FEATURE_PROVIDER_BASE_CONFIG_PATH,
+                BKDL_FILE_FEATURE_PROVIDER_BASE_CONFIG_PATH_DEFAULT);
+    }
+
+    /**
+     * Set the base config path for file feature provider.
+     *
+     * @param conf
+     *          distributedlog configuration
+     * @param configPath
+     *          base config path for file feature provider.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setFileFeatureProviderBaseConfigPath(String configPath) {
+        setProperty(BKDL_FILE_FEATURE_PROVIDER_BASE_CONFIG_PATH, configPath);
+        return this;
+    }
+
+    /**
+     * Get the overlay config path for file feature provider.
+     *
+     * @return overlay config path for file feature provider.
+     */
+    public String getFileFeatureProviderOverlayConfigPath() {
+        return getString(BKDL_FILE_FEATURE_PROVIDER_OVERLAY_CONFIG_PATH,
+                BKDL_FILE_FEATURE_PROVIDER_OVERLAY_CONFIG_PATH_DEFAULT);
+    }
+
+    /**
+     * Set the overlay config path for file feature provider.
+     *
+     * @param conf distributedlog configuration
+     * @param configPath
+     *          overlay config path for file feature provider.
+     * @return distributedlog configuration
+     */
+    public DistributedLogConfiguration setFileFeatureProviderOverlayConfigPath(String configPath) {
+        setProperty(BKDL_FILE_FEATURE_PROVIDER_OVERLAY_CONFIG_PATH,
+                configPath);
+        return this;
+    }
+
     //
     // Settings for Namespaces
     //
@@ -2959,7 +3043,7 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
      * @param intervalSec dynamic configuration reload interval in seconds
      * @return distributedlog configuration.
      */
-    public DistributedLogConfiguration setDynamicConfigReloadIntervalSec(String intervalSec) {
+    public DistributedLogConfiguration setDynamicConfigReloadIntervalSec(int intervalSec) {
         setProperty(BKDL_DYNAMIC_CONFIG_RELOAD_INTERVAL_SEC, intervalSec);
         return this;
     }

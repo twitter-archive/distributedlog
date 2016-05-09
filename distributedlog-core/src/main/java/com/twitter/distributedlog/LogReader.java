@@ -1,5 +1,7 @@
 package com.twitter.distributedlog;
 
+import com.twitter.distributedlog.io.AsyncCloseable;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
@@ -136,15 +138,12 @@ import java.util.List;
  * </pre>
  *
  * @see AsyncLogReader
+ *
+ * NOTE:
+ * 1. Extending {@link AsyncCloseable}: BKSyncLogReader is implemented based on BKAsyncLogReader, exposing
+ *    the {@link AsyncCloseable} interface so the reader could be closed asynchronously
  */
-public interface LogReader extends Closeable {
-
-    /**
-     * Close the stream.
-     *
-     * @throws IOException if an error occurred while closing
-     */
-    public void close() throws IOException;
+public interface LogReader extends Closeable, AsyncCloseable {
 
     /**
      * Read the next log record from the stream.

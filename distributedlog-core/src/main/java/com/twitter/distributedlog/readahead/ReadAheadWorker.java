@@ -357,7 +357,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher, As
         if (null == stopPromise) {
             return Future.Void();
         }
-        return FutureUtils.ignore(FutureUtils.raiseWithin(
+        return FutureUtils.ignore(FutureUtils.within(
                 stopPromise,
                 2 * conf.getReadAheadWaitTime(),
                 TimeUnit.MILLISECONDS,
@@ -974,7 +974,7 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher, As
                                     // This disconnect will only surface during repositioning and
                                     // will not silently miss records; therefore its safe to not halt
                                     // reading, but we should print a warning for easy diagnosis
-                                    if (lastAddConfirmed > (currentMetadata.getLastEntryId() + 1)) {
+                                    if (conf.getTraceReadAheadMetadataChanges() && lastAddConfirmed > (currentMetadata.getLastEntryId() + 1)) {
                                         LOG.warn("Potential Metadata Corruption {} for stream {}, lastAddConfirmed {}",
                                                 new Object[] {currentMetadata, logMetadata.getFullyQualifiedName(), lastAddConfirmed});
                                     }
