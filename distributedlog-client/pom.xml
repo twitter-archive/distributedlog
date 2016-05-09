@@ -45,6 +45,12 @@
       <groupId>com.twitter</groupId>
       <artifactId>finagle-serversets_2.11</artifactId>
       <version>${birdcage.sha}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-jdk14</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
