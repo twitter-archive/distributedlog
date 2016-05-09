@@ -1,0 +1,26 @@
+region_stop_accept_new_stream:
+  default_availability: 0
+disable_durability_enforcement:
+  default_availability: 0
+disable_write_limit:
+  default_availability: 0
+bkc.repp_disable_durability_enforcement:
+  default_availability: 0
+bkc.disable_ensemble_change:
+  default_availability: 0
+dl.disable_logsegment_rolling:
+  default_availability: 0
+dl.disable_write_limit:
+  default_availability: 0
+bkc.atla.disallow_bookie_placement:
+  default_availability: 0
+bkc.atlb.disallow_bookie_placement:
+  default_availability: 0
+bkc.smf1.disallow_bookie_placement:
+  default_availability: 0
+service_rate_limit_disabled:
+  default_availability: 0
+service_checksum_disabled:
+  default_availability: 0
+service_global_limiter_disabled:
+  default_availability: 0

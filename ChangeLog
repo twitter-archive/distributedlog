@@ -1,0 +1,329 @@
+0.3.50
+------
+- Misc bugfixes, including thread factory crash
+
+0.3.49
+------
+- Bump dependency snapshot to 2016 03 30 version
+
+0.3.48
+------
+- Improve DL documentation
+- Make write pipeline purely asynchronous
+- Able to skip corrupt entry
+- Don't log stream failfast issues
+- Script improvements
+
+0.3.47
+------
+- Add create command to service and client
+- Distributed Lock improvements
+- Cache finagle stats
+- Allow configuring replication factors per DL stream
+
+0.3.46
+------
+- Append only reader/writer fixes
+- Lock improvements for reliability
+- Async Ledger Allocator uses zookeeper multi
+
+0.3.45
+------
+- ReadAhead Refactor
+- ReadAhead Idle Detection Improvement
+- Add Interface for Log Segment Entry Writer
+- Add ServerSetWatcher for server set changes
+- Fix stream acquire limit and add more stats for limiting
+
+0.3.44
+------
+- Bulk reads with waiting time
+- LogRecordSet interface
+- Cleanup LogSegmentWriter logic
+- DL tooling improvements
+- Throw IdleReader exception if readahead becomes idle
+- Check existence of log or log segments should call zookeeper#sync
+- Recreate zookeeper client if it stays disconnected state for long time
+
+0.3.43
+------
+- Log metadata creation handles missing log identifer
+
+0.3.42
+------
+- Bump birdcage release to 20160128130022-e7bf469
+- Add markEndOfStream to log writer
+- Conversion of many synchronous/blocking operations to asynchronous
+
+0.3.41
+------
+- Bump bkc to 4.3.2
+- Shard level resource limits in service
+- Dynamically configurable readahead settings
+- Categorize and cleanup configuration
+- Bug fixes for non-durable write mode, log enumeration, readahead cache
+- Fix some flaky tests
+- Add docbird docs
+
+0.3.40
+------
+- Reorganize local run scripts to support full service config
+- Fix emulator timeout bug
+- Break service layer into Stream, Service, StreamManager
+- Add some stream scope stats
+
+0.3.39
+------
+- Sync Reader uses Async Reader
+- Write proxy returns if failed to pre-execute the stream operation
+- Write proxy checksum
+- Upgrade zookeeper version
+- LogSegmentSequenceNumber Assignment should consider v3 rolling back to v2
+- Merge Search Release to master
+- SyncLogReader should start from the fromTxnId
+- ReadAhead should detect log deletion
+- Docbird structure
+- Unify per stream stats logging
+
+0.3.37
+------
+- Remove partitions from DL
+- Move DistributedLogExample to distributedlog-example package
+- Add getLastLogRecordAsync to log manager
+- Remove unpartitioned from log writers
+- Skip ledger number validation if the ledger metadata doesn't contain ledger sequence number
+- Rename LedgerSequenceNumber to LogSegmentSequenceNumber
+- Using BKAsyncLogReader to implement BKSyncLogReader
+- LogSegmentWriter should close ledger if the log segment isn't in error state
+- Async positioning reader by transaction id
+- Move log creation and initialization logic out of log handler constructors
+- Don't retry invalid stream name exception on acquiring ownership
+- Checksum between client and proxy for write
+- Move DistributedLog Write Proxy to use TwitterServer
+- Update fiangle and utils dependencies to scala 2.11
+
+0.3.36
+------
+- Remove partitions from DL
+- Add getLastLogRecordAsync to log manager
+- Remove Unpartitioned from log writers
+- Skip ledger number validation if the ledger metadata doesn't contain ledger sequence number
+
+0.3.35
+------
+- Fix syncownership elapsed time issue
+
+0.3.34
+------
+- Add validation on server configuration
+- Remove server mode from distributedlog proxy
+- Fix wrong scope for client operation stats
+
+0.3.33
+------
+- Make per stream thread as daemon thread
+- DistributedLog Service Layer Refactor
+- Binding changes for federated namespace
+- Enforce ledger sequence number validation when get list of log segments
+- Graceful shutdown period for write proxies
+- Handshake should detect service status
+- Non decreasing transaction id support
+
+0.3.32
+------
+- Dynamic Config Mechanism
+- DistributedLogManagerFactory cleanup for Federated Namespace
+- Abort & Close Fixes
+- Delay cache removal after service timeout
+- Request rate limiting in write proxy
+- Client Refactor
+- Periodic Proxy Handshake
+
+0.3.31
+------
+- Routing context for tried host history
+- Propagate flush delayed exception when minDelayBetwenFlush is enabled
+- Disable failure accrual on distributedlog client
+- Async readBulk interface for reader
+- Update BKC to 4.3.0-TWTTR
+- Metadata upgrade changes
+- Get subscription states for DL stream
+
+0.3.30
+------
+- Sequence ID Support
+- Handle disconnect between lastTxId/lastDLSN in metadata and contents of the log segment
+- Address lock race conditions
+- Validate stream path
+- Truncation fixes
+- Region based stats on distributedlog lock
+
+0.3.29
+------
+- Provide zookeeper watcher manager to manage watchers
+- Tests improvements
+- Write LogSegmentLedgerMetadata with specific version
+- Feature provider support from bookkeeper client
+- DistributedLogCluster util for run all dl components
+
+0.3.28
+------
+- Update cached log segments after setting truncation status
+- Remove host from hosting service if client hits channel exceptions
+- Dynamic option to disable durability enforcement
+- Immutable distributedlog client builder
+- getAsyncLogReaderWithLock position read from last commit point
+- DistributedLock handle znode left by previous expired lock
+- Logging improvement and misc bug fixes
+
+0.3.27
+------
+- Service Level Timeout
+- Stream Ownership Filters
+- Pin Stream Ownership Feature
+- Heartbeat with control records
+- Idle reader detection improvements
+- Misc fixes for high pendings
+- Lock Timeout
+- Reader Lock Deadlock Fixes
+
+0.3.26
+------
+- BookKeeper Version 4.2.22
+- Explicit Truncation Point Support
+- Compression Support
+- Handle missing zk notification
+- Misc changes on fixing high pendings
+
+0.3.25
+------
+- BookKeeper Version 4.2.21
+- AsyncLogReader stall detection
+- DistributedLog self lock fix
+- Ledger Allocator throttling
+- DistributedLog Thrift Mux Support
+- Remove blocking calls in AsyncLogReader
+- Misc AsyncLogWriter fixes
+
+0.3.24
+------
+- Ability to block operations to a stream on proxies
+- Synchronous close ledger handle 
+- Backpressure via write queue length
+- DistributedLog Client Changes to Support Rebalancing
+- BookKeeper Version 4.2.20 
+- Fix transactional add and delete log segment
+
+0.3.23
+------
+- Fix AppendOnlyStreamWriter empty log bug
+- Add StatsFilter to track pending requests issues
+- Add a tracker (exposing stats) to track readahead worker progress
+
+0.3.21
+------
+- Reader Lock Implementation
+- Cancel pending writes when the stream is marked in error
+- Handle write bursts using mininum delay between flushes
+- Scala 2.10 upgrade
+- DistributedLogClient creation waits for initial binding of the Name
+
+0.3.20
+------
+- Options to disable gap detection and alert on gaps
+- Support for getFirstDLSNAsyc
+- ConsistentHashRoutingService supports Names correctly
+- NameServerSet supports WeightedSocketAddresses
+
+0.3.19
+------
+- Additional stats on the reader
+- Fixes for DistributedLock
+- ZK ACL support
+- Remove reference counting from the ZK/BK Clients
+- Deferred Truncation (Truncation Support and Reader Validation)
+- Do not cache control records in the read ahead cache 
+
+0.3.18
+-----
+- Bulk(Batched) Writes
+- Idle Reader logging and Force Blocking Read
+- Support For Finagle Names
+- Async GetLastDLSN
+- Deferred Truncation (Metadata Changes)
+- Upgrade BookKeeper Client version
+
+0.3.17
+-----
+- Fix deadlock on rolling log segments
+- Fix Stale Mapping
+- Handle log segments being delete or completed during enumeration
+- Handle runtime exceptions and log un-handled exceptions in the reader
+- Alert on various conditions that indicate reader missing log records
+- ZK Rate limiter
+- Separate ZooKeeper connections used for reads and writes
+
+0.3.16
+----
+- Fix Write Filter
+- Tools to fix inprogress log segments with lower sequence number
+- Split DL Modules
+
+0.3.15
+----
+- Merge changes from master back to AsyncLogReader
+- Write Control Record for Heartbeat
+- Fixes for proxy shutdown
+- Fixes for duplicated log segments
+
+0.3.12
+-----
+- Additional stats on readers/read ahead
+- Fixes for proxy restarts
+- Fixes for bookie restarts
+
+0.3.11
+-----
+- Remove blocking calls in the async reader
+- Additional Stats
+- New Finagle Settings for the proxy
+
+0.3.10
+-----
+- New BKC Release (Preliminary changes for region aware placement and reordering)
+- Twitter DNS Resolver
+- Initial DLSN
+
+0.3.9
+-----
+- Upgrade Guava 16
+- Change stats to micro seconds
+- Read Last Add Confirmed Long Polling
+- Piggyback one entry with LAC
+
+0.3.8
+-----
+- Ledger Allocation
+- BKLogPartitionWriteHandler optimizations
+- Flag to enable/disable sanity checking txn id
+- Flag to check and create stream if not exists
+- Throttling ledger rolling speed in DL
+- Resilient to zookeeper exception in writer path
+- TryReadLastAddConfirmed support
+- Retryable ZooKeeper Client
+- Region ID support for log segment
+- Namespace & LogSegment Listener
+- Monitor Service
+- LogSegment Filter
+- Recovery in background
+
+0.3.7
+-----
+- New bookkeeper release
+- Async getLastDLSN
+- Fix for non blocking readers
+- Changes from master upto 0.2.12 
+
+0.3.6
+-----
+- Expose DistributedLog Client Builder in Proxy Builder                                                      

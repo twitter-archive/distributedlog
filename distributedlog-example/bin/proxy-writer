@@ -1,0 +1,17 @@
+#!/bin/bash
+
+BASEDIR=$(dirname "$0")
+DISTRIBUTEDLOG_ROOT="${BASEDIR}/../.."
+
+cd ${DISTRIBUTEDLOG_ROOT} &&\
+mvn clean install -P twitter-ostrich-provider -pl distributedlog-benchmark -am -DskipTests &&\
+BUILT_JAR=`ls distributedlog-benchmark/target/distributedlog-*.jar 2> /dev/null | egrep -v 'tests|javadoc|sources' | tail -1` &&
+java -cp .:distributedlog-benchmark/lib/*:$BUILT_JAR \
+    -Dlog4j.configuration=distributedlog-example/conf/log4j.properties \
+    -DstatsHttpPort=9001 -DstatsExport=true \
+    com.twitter.distributedlog.benchmark.Benchmarker \
+    --mode write --shard 0 --finagle-name 'inet!127.0.0.1:8000' \
+    --duration 100000 --rate 10 --concurrency 1 \
+    --start-stream-id 0 --end-stream-id 1 \
+    --streamprefix example-stream \
+    --provider org.apache.bookkeeper.stats.twitter.ostrich.OstrichProvider

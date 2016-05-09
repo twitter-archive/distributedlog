@@ -1,0 +1,8 @@
+#!/bin/bash
+
+BASEDIR=$(dirname "$0")
+DISTRIBUTEDLOG_ROOT="${BASEDIR}/../.."
+
+cd ${DISTRIBUTEDLOG_ROOT} &&\
+mvn clean install -pl distributedlog-core -am -DskipTests &&\
+distributedlog-core/bin/dlog local 7000
