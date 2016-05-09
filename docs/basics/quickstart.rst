@@ -12,6 +12,13 @@ Download the stable version of `DistributedLog` and un-zip it.
 
     // Download the binary `distributedlog-all-${gitsha}.zip`
     > unzip distributedlog-all-${gitsha}.zip
+    
+Build all the dependencies
+
+::
+
+    // you can make this faster by skipping the tests
+    mvn install <-DskipTests>
 
 
 Step 2: Start ZooKeeper & BookKeeper
