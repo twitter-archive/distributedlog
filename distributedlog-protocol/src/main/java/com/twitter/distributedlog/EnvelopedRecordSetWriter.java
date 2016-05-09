@@ -34,6 +34,7 @@ class EnvelopedRecordSetWriter implements LogRecordSet.Writer {
     private final CompressionCodec.Type codec;
     private final int codecCode;
     private int count = 0;
+    private ByteBuffer recordSetBuffer = null;
 
     EnvelopedRecordSetWriter(int initialBufferSize,
                              CompressionCodec.Type codec) {
@@ -114,6 +115,13 @@ class EnvelopedRecordSetWriter implements LogRecordSet.Writer {
 
     @Override
     public synchronized ByteBuffer getBuffer() {
+        if (null == recordSetBuffer) {
+            recordSetBuffer = createBuffer();
+        }
+        return recordSetBuffer.duplicate();
+    }
+
+    ByteBuffer createBuffer() {
         byte[] data = buffer.getData();
         int dataOffset = HEADER_LEN;
         int dataLen = buffer.size() - HEADER_LEN;

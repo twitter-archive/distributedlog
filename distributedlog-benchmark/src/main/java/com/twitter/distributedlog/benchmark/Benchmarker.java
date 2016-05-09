@@ -61,6 +61,7 @@ public class Benchmarker {
     boolean readFromHead = false;
     int sendBufferSize = 1024 * 1024;
     int recvBufferSize = 1024 * 1024;
+    boolean enableBatching = false;
 
     final DistributedLogConfiguration conf = new DistributedLogConfiguration();
     final StatsReceiver statsReceiver = new OstrichStatsReceiver();
@@ -98,6 +99,7 @@ public class Benchmarker {
         options.addOption("rfh", "read-from-head", false, "Read from head of the stream");
         options.addOption("sb", "send-buffer", true, "Channel send buffer size, in bytes");
         options.addOption("rb", "recv-buffer", true, "Channel recv buffer size, in bytes");
+        options.addOption("bt", "enable-batch", true, "Enable batching on writers");
         options.addOption("h", "help", false, "Print usage.");
     }
 
@@ -197,6 +199,7 @@ public class Benchmarker {
         thriftmux = cmdline.hasOption("mx");
         handshakeWithClientInfo = cmdline.hasOption("hsci");
         readFromHead = cmdline.hasOption("rfh");
+        enableBatching = cmdline.hasOption("bt");
 
         Preconditions.checkArgument(shardId >= 0, "shardId must be >= 0");
         Preconditions.checkArgument(numStreams > 0, "numStreams must be > 0");
@@ -273,7 +276,8 @@ public class Benchmarker {
                 thriftmux,
                 handshakeWithClientInfo,
                 sendBufferSize,
-                recvBufferSize);
+                recvBufferSize,
+                enableBatching);
     }
 
     protected WriterWorker createWriteWorker(
@@ -293,7 +297,8 @@ public class Benchmarker {
             boolean thriftmux,
             boolean handshakeWithClientInfo,
             int sendBufferSize,
-            int recvBufferSize) {
+            int recvBufferSize,
+            boolean enableBatching) {
         return new WriterWorker(
                 streamPrefix,
                 startStreamId,
@@ -311,7 +316,8 @@ public class Benchmarker {
                 thriftmux,
                 handshakeWithClientInfo,
                 sendBufferSize,
-                recvBufferSize);
+                recvBufferSize,
+                enableBatching);
     }
 
     Worker runDLWriter() throws IOException {

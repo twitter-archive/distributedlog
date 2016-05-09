@@ -23,6 +23,3 @@ Bookkeeper
 ----------
 
 There is no minimal instances needed to run a Bookkeeper cluster.
-
-DistributedLog
---------------

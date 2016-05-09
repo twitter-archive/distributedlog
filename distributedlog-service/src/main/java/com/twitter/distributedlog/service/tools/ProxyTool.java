@@ -44,7 +44,7 @@ public class ProxyTool extends Tool {
             options.addOption("u", "uri", true, "DistributedLog URI");
             options.addOption("r", "prefix", true, "Prefix of stream name. E.g. 'QuantumLeapTest-'.");
             options.addOption("e", "expression", true, "Expression to generate stream suffix. " +
-                    "Currently we support range 'x-y', list 'x,y,z' and name 'xyz'");
+                    "Currently we support range '0-9', list '1,2,3' and name '143'");
         }
 
         @Override
@@ -52,7 +52,7 @@ public class ProxyTool extends Tool {
             try {
                 parseCommandLine(commandLine);
             } catch (ParseException pe) {
-                println("ERROR: fail to parse commandline : '" + pe.getMessage() + "'");
+                System.err.println("ERROR: failed to parse commandline : '" + pe.getMessage() + "'");
                 printUsage();
                 return -1;
             }
@@ -165,9 +165,9 @@ public class ProxyTool extends Tool {
                 rateLimiter.acquire();
                 try {
                     Await.result(client.release(stream));
-                    println("Release ownership of stream " + stream);
+                    System.out.println("Release ownership of stream " + stream);
                 } catch (Exception e) {
-                    println("Failed to release ownership of stream " + stream);
+                    System.err.println("Failed to release ownership of stream " + stream);
                     throw e;
                 }
             }
@@ -191,10 +191,10 @@ public class ProxyTool extends Tool {
 
         @Override
         protected int runCmd(DistributedLogClient client) throws Exception {
-            println("Truncating streams : " + streams);
+            System.out.println("Truncating streams : " + streams);
             for (String stream : streams) {
                 boolean success = Await.result(client.truncate(stream, dlsn));
-                println("Truncate " + stream + " to " + dlsn + " : " + success);
+                System.out.println("Truncate " + stream + " to " + dlsn + " : " + success);
             }
             return 0;
         }
@@ -245,7 +245,7 @@ public class ProxyTool extends Tool {
             try {
                 parseCommandLine(commandLine);
             } catch (ParseException pe) {
-                println("ERROR: fail to parse commandline : '" + pe.getMessage() + "'");
+                System.err.println("ERROR: failed to parse commandline : '" + pe.getMessage() + "'");
                 printUsage();
                 return -1;
             }

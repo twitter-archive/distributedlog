@@ -67,4 +67,20 @@ public abstract class AbstractFeatureProvider<T extends Feature> extends Cacheab
         this.statsLogger = statsLogger;
     }
 
+    /**
+     * Start the feature provider.
+     *
+     * @throws IOException when failed to start the feature provider.
+     */
+    public void start() throws IOException {
+        // no-op
+    }
+
+    /**
+     * Stop the feature provider.
+     */
+    public void stop() {
+        // no-op
+    }
+
 }

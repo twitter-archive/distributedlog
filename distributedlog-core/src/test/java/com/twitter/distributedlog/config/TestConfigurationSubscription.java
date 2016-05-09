@@ -1,12 +1,15 @@
 package com.twitter.distributedlog.config;
 
-import com.twitter.distributedlog.DistributedLogConfiguration;
-
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.common.collect.Lists;
+import com.twitter.distributedlog.DistributedLogConfiguration;
 import org.apache.commons.configuration.event.ConfigurationEvent;
 import org.apache.commons.configuration.event.ConfigurationListener;
 import org.junit.Test;
@@ -24,13 +27,47 @@ public class TestConfigurationSubscription {
     static final Logger LOG = LoggerFactory.getLogger(TestConfigurationSubscription.class);
 
     @Test(timeout = 60000)
+    public void testReloadConfiguration() throws Exception {
+        PropertiesWriter writer = new PropertiesWriter();
+        ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
+        FileConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURI().toURL());
+        ConcurrentConstConfiguration conf = new ConcurrentConstConfiguration(new DistributedLogConfiguration());
+        List<FileConfigurationBuilder> fileConfigBuilders = Lists.newArrayList(builder);
+        ConfigurationSubscription confSub =
+                new ConfigurationSubscription(conf, fileConfigBuilders, executorService, 100, TimeUnit.MILLISECONDS);
+        final CountDownLatch reloadLatch = new CountDownLatch(1);
+        final AtomicReference<ConcurrentBaseConfiguration> confHolder =
+                new AtomicReference<ConcurrentBaseConfiguration>();
+        confSub.registerListener(new com.twitter.distributedlog.config.ConfigurationListener() {
+            @Override
+            public void onReload(ConcurrentBaseConfiguration conf) {
+                confHolder.set(conf);
+                reloadLatch.countDown();
+            }
+        });
+        assertEquals(null, conf.getProperty("prop1"));
+
+        // add
+        writer.setProperty("prop1", "1");
+        writer.save();
+
+        // reload the config
+        confSub.reload();
+        reloadLatch.await();
+        assertNotNull(confHolder.get());
+        assertTrue(conf == confHolder.get());
+        assertEquals("1", conf.getProperty("prop1"));
+    }
+
+    @Test(timeout = 60000)
     public void testAddReloadBasicsConfig() throws Exception {
         PropertiesWriter writer = new PropertiesWriter();
         ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
-        PropertiesConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURI().toURL());
+        FileConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURI().toURL());
         ConcurrentConstConfiguration conf = new ConcurrentConstConfiguration(new DistributedLogConfiguration());
+        List<FileConfigurationBuilder> fileConfigBuilders = Lists.newArrayList(builder);
         ConfigurationSubscription confSub =
-                new ConfigurationSubscription(conf, builder, executorService, 100, TimeUnit.MILLISECONDS);
+                new ConfigurationSubscription(conf, fileConfigBuilders, executorService, 100, TimeUnit.MILLISECONDS);
         assertEquals(null, conf.getProperty("prop1"));
 
         // add
@@ -66,10 +103,11 @@ public class TestConfigurationSubscription {
         writer.save();
 
         ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
-        PropertiesConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURI().toURL());
+        FileConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURI().toURL());
         ConcurrentConstConfiguration conf = new ConcurrentConstConfiguration(new DistributedLogConfiguration());
+        List<FileConfigurationBuilder> fileConfigBuilders = Lists.newArrayList(builder);
         ConfigurationSubscription confSub =
-                new ConfigurationSubscription(conf, builder, executorService, 100, TimeUnit.MILLISECONDS);
+                new ConfigurationSubscription(conf, fileConfigBuilders, executorService, 100, TimeUnit.MILLISECONDS);
         assertEquals(1, conf.getInt("prop1"));
         assertEquals("abc", conf.getString("prop2"));
         assertEquals(123.0, conf.getFloat("prop3"), 0);
@@ -84,10 +122,11 @@ public class TestConfigurationSubscription {
         writer.save();
 
         ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
-        PropertiesConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURI().toURL());
+        FileConfigurationBuilder builder = new PropertiesConfigurationBuilder(writer.getFile().toURI().toURL());
         ConcurrentConstConfiguration conf = new ConcurrentConstConfiguration(new DistributedLogConfiguration());
+        List<FileConfigurationBuilder> fileConfigBuilders = Lists.newArrayList(builder);
         ConfigurationSubscription confSub =
-                new ConfigurationSubscription(conf, builder, executorService, 100, TimeUnit.MILLISECONDS);
+                new ConfigurationSubscription(conf, fileConfigBuilders, executorService, 100, TimeUnit.MILLISECONDS);
 
         final AtomicInteger count = new AtomicInteger(1);
         conf.addConfigurationListener(new ConfigurationListener() {

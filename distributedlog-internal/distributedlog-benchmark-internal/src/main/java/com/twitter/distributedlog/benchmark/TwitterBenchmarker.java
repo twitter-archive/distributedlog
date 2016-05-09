@@ -32,7 +32,8 @@ public class TwitterBenchmarker extends Benchmarker {
                                              boolean thriftmux,
                                              boolean handshakeWithClientInfo,
                                              int sendBufferSize,
-                                             int recvBufferSize) {
+                                             int recvBufferSize,
+                                             boolean enableBatching) {
         return new TwitterWriterWorker(
                 streamPrefix,
                 startStreamId,
@@ -50,7 +51,8 @@ public class TwitterBenchmarker extends Benchmarker {
                 thriftmux,
                 handshakeWithClientInfo,
                 sendBufferSize,
-                recvBufferSize);
+                recvBufferSize,
+                enableBatching);
     }
 
     @Override

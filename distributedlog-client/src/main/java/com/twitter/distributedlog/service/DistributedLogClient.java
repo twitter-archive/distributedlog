@@ -26,7 +26,7 @@ public interface DistributedLogClient {
      * @param stream stream to write to
      * @param recordSet record set
      */
-    void writeRecordSet(String stream, LogRecordSetBuffer recordSet);
+    Future<DLSN> writeRecordSet(String stream, LogRecordSetBuffer recordSet);
 
     /**
      * Write <i>data</i> in bulk to a given <i>stream</i>. Return a list of

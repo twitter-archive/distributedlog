@@ -325,7 +325,7 @@ public class BKDistributedLogNamespace implements DistributedLogNamespace {
                 .build();
         if (conf.getNumReadAheadWorkerThreads() > 0) {
             this.readAheadExecutor = OrderedScheduler.newBuilder()
-                    .name("DLM-" + uri.getPath() + "-readahead-executor-%d")
+                    .name("DLM-" + uri.getPath() + "-readahead-executor")
                     .corePoolSize(conf.getNumReadAheadWorkerThreads())
                     .statsLogger(statsLogger.scope("factory").scope("readahead_thread_pool"))
                     .traceTaskExecution(conf.getTraceReadAheadDeliveryLatency())

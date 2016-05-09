@@ -31,6 +31,7 @@ public class TestBKLogPartitionReadHandler {
     protected static DistributedLogConfiguration conf = new DistributedLogConfiguration();
     static {
         conf.setLockTimeout(10);
+        conf.setSchedulerShutdownTimeoutMs(0);
     }
     private static LocalDLMEmulator bkutil;
     private static ZooKeeperServerShim zks;
