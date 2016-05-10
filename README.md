@@ -2,7 +2,7 @@
 
 ## Overview
 
-DistributedLog (DL) is a high-performance, replicated log service, offering durability, replication and high consistency as essentials for building reliable distributed systems.
+DistributedLog (DL) is a high-performance, replicated log service, offering durability, replication and strong consistency as essentials for building reliable distributed systems.
 
 #### High Performance
 
