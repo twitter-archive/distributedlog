@@ -1,0 +1,15 @@
+*~
+*#*#
+*.#*
+*.ipr
+*.iml
+*.iws
+*.swp
+.DS_Store
+.classpath
+.project
+.metadata
+.settings
+.idea/
+target/
+lib/
