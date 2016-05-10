@@ -8,7 +8,7 @@ as essentials for building reliable distributed systems.
 #### High Performance
 
 DL is able to provide milliseconds latency on durable writes with large number of concurrent logs.
-Also also handle high volume reads and writes per second from thousands of clients.
+Also handle high volume reads and writes per second from thousands of clients.
 
 #### Durable and Consistent
 
