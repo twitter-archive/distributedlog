@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/twitter/distributedlog.svg?branch=master)](https://travis-ci.org/twitter/distributedlog)
+
 ## Overview
 
 DistributedLog (DL) is a high-performance, replicated log service, offering durability, replication and strong consistency
