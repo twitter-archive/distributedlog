@@ -81,7 +81,7 @@ Now, lets start a write proxy server that serves writes to distributedlog namesp
     > ./distributedlog-service/bin/dlog com.twitter.distributedlog.service.DistributedLogServerApp -p 8000 --shard-id 1 -sp 8001 -u distributedlog://127.0.0.1:7000/messaging/distributedlog -mx -c ${DL_HOME}/distributedlog-service/conf/distributedlog_proxy.conf
 
 
-Step 7: Tail reading records
+Step 6: Tail reading records
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The distributedlog tutorial has a multi-streams reader that will dump out received records to standard output.
@@ -91,7 +91,7 @@ The distributedlog tutorial has a multi-streams reader that will dump out receiv
     > ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:7000/messaging/distributedlog messaging-stream-1,messaging-stream-2,messaging-stream-3,messaging-stream-4,messaging-stream-5
 
 
-Step 6: Write some records
+Step 7: Write some records
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The distributedlog tutorial also has a multi-streams writer that will take input from a console and write it out
