@@ -49,11 +49,12 @@ and memory.
 * [**API References**](http://twitter.github.io/distributedlog/html/api/main.html)
 * [**Tutorials**](http://twitter.github.io/distributedlog/html/tutorials/main.html)
 
-## Contact
+## Getting involved
 
-For bugs, improvements, feature requests, please report them to <https://github.com/twitter/distributedlog/issues>.
-
-## Contributing
+* Website: https://twitter.github.io/distributedlog/html/
+* Source: https://github.com/twitter/distributedlog
+* Maiing List: [distributedlog-user@googlegroups.com](https://groups.google.com/forum/#!forum/distributedlog-user)
+* Issue Tracker: https://github.com/twitter/distributedlog/issues
 
 We feel that a welcoming community is important and we ask that you follow Twitter's
 [Open Source Code of Conduct](https://engineering.twitter.com/opensource/code-of-conduct)
