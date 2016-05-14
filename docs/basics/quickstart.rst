@@ -53,15 +53,15 @@ Let's create 5 log streams, prefixed with `messaging-test-`.
 
 ::
 
-    > ./distributedlog-service/bin/dlog tool create -u distributedlog://127.0.0.1:7000/messaging/distributedlog -r messaging-stream- -e 1-5
+    > ./distributedlog-service/bin/dlog tool create -u distributedlog://127.0.0.1:7000/messaging/my_namespace -r messaging-stream- -e 1-5
 
 
 We can now see the streams if we run the `list` command from the tool.
 
 ::
     
-    > ./distributedlog-service/bin/dlog tool list -u distributedlog://127.0.0.1:7000/messaging/distributedlog
-    Streams under distributedlog://127.0.0.1:7000/messaging/distributedlog :
+    > ./distributedlog-service/bin/dlog tool list -u distributedlog://127.0.0.1:7000/messaging/my_namespace
+    Streams under distributedlog://127.0.0.1:7000/messaging/my_namespace :
     --------------------------------
     messaging-stream-1
     messaging-stream-3
@@ -74,11 +74,11 @@ We can now see the streams if we run the `list` command from the tool.
 Step 5: Start a write proxy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Now, lets start a write proxy server that serves writes to distributedlog namespace `distributedlog://127.0.0.1/messaging/distributedlog`. The server listens on 8000 to accept fan-in write requests.
+Now, lets start a write proxy server that serves writes to distributedlog namespace `distributedlog://127.0.0.1/messaging/my_namespace`. The server listens on 8000 to accept fan-in write requests.
 
 ::
     
-    > ./distributedlog-service/bin/dlog com.twitter.distributedlog.service.DistributedLogServerApp -p 8000 --shard-id 1 -sp 8001 -u distributedlog://127.0.0.1:7000/messaging/distributedlog -mx -c ${DL_HOME}/distributedlog-service/conf/distributedlog_proxy.conf
+    > ./distributedlog-service/bin/dlog-daemon.sh start writeproxy -p 8000 --shard-id 1 -sp 8001 -u distributedlog://127.0.0.1:7000/messaging/my_namespace -mx -c `pwd`/distributedlog-service/conf/distributedlog_proxy.conf
 
 
 Step 6: Tail reading records
@@ -88,7 +88,7 @@ The distributedlog tutorial has a multi-streams reader that will dump out receiv
 
 ::
     
-    > ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:7000/messaging/distributedlog messaging-stream-1,messaging-stream-2,messaging-stream-3,messaging-stream-4,messaging-stream-5
+    > ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:7000/messaging/my_namespace messaging-stream-1,messaging-stream-2,messaging-stream-3,messaging-stream-4,messaging-stream-5
 
 
 Step 7: Write some records
