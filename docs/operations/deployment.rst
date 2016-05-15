@@ -4,29 +4,16 @@ Cluster Setup & Deployment
 To run a cluster with DistributedLog, you need a Zookeeper cluster and
 a Bookkeeper cluster.
 
-Build
------
-
-To build DistributedLog, run:
-
-.. code-block:: bash
-
-   mvn package
-
-This will generate a zip file in
-``distributedlog-service/target``. This zip file contains the main JAR
-to run DistributedLog, and all the dependencies.
-
 Apache Zookeeper
 ----------------
 
 To run a DistributedLog ensemble, you'll need a set of Zookeeper
-nodes. There is no constraints on the number of Zookeeper nodes you
+nodes. There are no constraints on the number of Zookeeper nodes you
 need. One node is enough to run your cluster, but for reliability
-purpose, you should run at least 3 nodes in production.
+purposes, you should run at least 3 nodes in production.
 
-Since DistributedLog persist some meta-data in zookeeper, you'll need
-to make sure your data are stored on persistent disks.
+Since DistributedLog persists some meta-data in zookeeper, you'll need
+to make sure your data is stored on persistent disks.
 
 Apache Bookkeeper
 -----------------
@@ -42,7 +29,7 @@ on hosts with persistent storage.
 Metadata
 ~~~~~~~~
 
-Some metadata need to be created in Zookeeper before starting the
+Some metadata needs to be created in Zookeeper before starting the
 bookies. Get a copy of the bookkeeper binary and run the following
 command to create them:
 

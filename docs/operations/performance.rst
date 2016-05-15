@@ -1,7 +1,7 @@
 Performance Tuning
 ==================
 
-We've found that this values are giving us the best performances (please refer to :doc`/configuration/core` for the meaning of each setting):
+We've found that the following settings have given us the best performance (please refer to :doc`/configuration/core` for the meaning of each setting):
 
 DL Zookeeper Settings
 ---------------------
