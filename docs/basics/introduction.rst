@@ -60,7 +60,7 @@ Namespaces
 The *log streams* belong to same organization are usually categorized and managed under
 a **namespace**. A DL **namespace** is basically for applications to locate where the
 *log streams* are. Applications could *create* and *delete* streams under a namespace,
-and also be able to *truncate* a stream to given sequence number (either *DLSN* *TransactionID*).
+and also be able to *truncate* a stream to given sequence number (either *DLSN* or *TransactionID*).
 
 Writers
 -------
