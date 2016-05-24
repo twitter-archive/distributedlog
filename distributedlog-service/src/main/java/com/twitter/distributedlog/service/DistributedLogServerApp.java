@@ -17,10 +17,13 @@
  */
 package com.twitter.distributedlog.service;
 
+import com.google.common.base.Optional;
+import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
 import org.apache.bookkeeper.stats.NullStatsProvider;
 import org.apache.bookkeeper.stats.StatsProvider;
+import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
@@ -30,7 +33,9 @@ import org.apache.commons.configuration.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.util.Arrays;
 
 import static com.twitter.distributedlog.util.CommandLineUtils.*;
@@ -52,8 +57,9 @@ public class DistributedLogServerApp {
         options.addOption("sc", "stream-conf", true, "Per Stream Configuration Directory");
         options.addOption("p", "port", true, "DistributedLog Server Port");
         options.addOption("sp", "stats-port", true, "DistributedLog Stats Port");
+        options.addOption("pd", "stats-provider", true, "DistributedLog Stats Provider");
         options.addOption("si", "shard-id", true, "DistributedLog Shard ID");
-        options.addOption("a", "announce", true, "ServerSet Path to Announce");
+        options.addOption("a", "announce", false, "ServerSet Path to Announce");
         options.addOption("mx", "thriftmux", false, "Is thriftmux enabled");
     }
 
@@ -88,16 +94,37 @@ public class DistributedLogServerApp {
 
     private void runCmd(CommandLine cmdline) throws IllegalArgumentException, IOException, ConfigurationException {
         final StatsReceiver statsReceiver = NullStatsReceiver.get();
-        final StatsProvider statsProvider = new NullStatsProvider();
+        Optional<String> confOptional = getOptionalStringArg(cmdline, "c");
+        DistributedLogConfiguration dlConf = new DistributedLogConfiguration();
+        if (confOptional.isPresent()) {
+            String configFile = confOptional.get();
+            try {
+                dlConf.loadConf(new File(configFile).toURI().toURL());
+            } catch (ConfigurationException e) {
+                throw new IllegalArgumentException("Failed to load distributedlog configuration from " + configFile + ".");
+            } catch (MalformedURLException e) {
+                throw new IllegalArgumentException("Failed to load distributedlog configuration from malformed "
+                        + configFile + ".");
+            }
+        }
+        Optional<String> statsProviderCls = getOptionalStringArg(cmdline, "pd");
+        // load the stats provider
+        final StatsProvider statsProvider;
+        if (statsProviderCls.isPresent()) {
+            statsProvider = ReflectionUtils.newInstance(statsProviderCls.get(), StatsProvider.class);
+        } else {
+            statsProvider = new NullStatsProvider();
+        }
+        statsProvider.start(dlConf);
 
         final DistributedLogServer server = DistributedLogServer.runServer(
                 getOptionalStringArg(cmdline, "u"),
-                getOptionalStringArg(cmdline, "c"),
+                confOptional,
                 getOptionalStringArg(cmdline, "sc"),
                 getOptionalIntegerArg(cmdline, "p"),
                 getOptionalIntegerArg(cmdline, "sp"),
                 getOptionalIntegerArg(cmdline, "si"),
-                getOptionalStringArg(cmdline, "a"),
+                getOptionalBooleanArg(cmdline, "a"),
                 getOptionalBooleanArg(cmdline, "mx"),
                 statsReceiver,
                 statsProvider);
@@ -108,6 +135,7 @@ public class DistributedLogServerApp {
                 logger.info("Closing DistributedLog Server.");
                 server.close();
                 logger.info("Closed DistributedLog Server.");
+                statsProvider.stop();
             }
         });
 
@@ -120,6 +148,7 @@ public class DistributedLogServerApp {
         logger.info("DistributedLog Service Interrupted.");
         server.close();
         logger.info("Closed DistributedLog Server.");
+        statsProvider.stop();
     }
 
     public static void main(String[] args) {

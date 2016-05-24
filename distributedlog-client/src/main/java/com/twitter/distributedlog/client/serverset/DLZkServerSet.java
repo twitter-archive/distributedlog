@@ -23,7 +23,10 @@ import com.twitter.common.quantity.Time;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.common.zookeeper.ServerSets;
 import com.twitter.common.zookeeper.ZooKeeperClient;
+import org.apache.commons.lang.StringUtils;
 import org.apache.zookeeper.ZooDefs;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -33,19 +36,43 @@ import java.net.URI;
  */
 public class DLZkServerSet {
 
+    private static final Logger logger = LoggerFactory.getLogger(DLZkServerSet.class);
+
     static final String ZNODE_WRITE_PROXY = ".write_proxy";
 
     private static String getZKServersFromDLUri(URI uri) {
         return uri.getAuthority().replace(";", ",");
     }
 
+    private static Iterable<InetSocketAddress> getZkAddresses(URI uri) {
+        String zkServers = getZKServersFromDLUri(uri);
+        String[] zkServerList = StringUtils.split(zkServers, ',');
+        InetSocketAddress[] zkAddresses = new InetSocketAddress[zkServerList.length];
+        int i = 0;
+        for (String zkServer : zkServerList) {
+            String[] hostAndPort = StringUtils.split(zkServer, ':');
+            int port = 2181;
+            String host = hostAndPort[0];
+            if (hostAndPort.length == 2) {
+                try {
+                    port = Integer.parseInt(hostAndPort[1]);
+                } catch (NumberFormatException nfe) {
+                    logger.warn("Failed to retrieve zookeeper server port from {}. Use default port 2181.",
+                            zkServer, nfe);
+                }
+            }
+            InetSocketAddress address = InetSocketAddress.createUnresolved(host, port);
+            zkAddresses[i] = address;
+            ++i;
+        }
+        return ImmutableList.copyOf(zkAddresses);
+    }
+
     public static DLZkServerSet of(URI uri,
                                    int zkSessionTimeoutMs) {
         // Create zookeeper and server set
-        String zkServers = getZKServersFromDLUri(uri);
         String zkPath = uri.getPath() + "/" + ZNODE_WRITE_PROXY;
-        Iterable<InetSocketAddress> zkAddresses =
-                ImmutableList.of(InetSocketAddress.createUnresolved(zkServers, 2181));
+        Iterable<InetSocketAddress> zkAddresses = getZkAddresses(uri);
         ZooKeeperClient zkClient =
                 new ZooKeeperClient(Amount.of(zkSessionTimeoutMs, Time.MILLISECONDS), zkAddresses);
         ServerSet serverSet = ServerSets.create(zkClient, ZooDefs.Ids.OPEN_ACL_UNSAFE, zkPath);

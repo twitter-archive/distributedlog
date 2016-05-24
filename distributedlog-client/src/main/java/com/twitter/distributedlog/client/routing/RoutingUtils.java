@@ -36,7 +36,9 @@ public class RoutingUtils {
      * @return routing service builder
      */
     public static RoutingService.Builder buildRoutingService(String finagleNameStr) {
-        if (!finagleNameStr.startsWith("serverset!") && !finagleNameStr.startsWith("inet!")) {
+        if (!finagleNameStr.startsWith("serverset!")
+                && !finagleNameStr.startsWith("inet!")
+                && !finagleNameStr.startsWith("zk!")) {
             // We only support serverset based names at the moment
             throw new UnsupportedOperationException("Finagle Name format not supported for name: " + finagleNameStr);
         }

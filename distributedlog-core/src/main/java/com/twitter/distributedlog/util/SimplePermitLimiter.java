@@ -57,7 +57,7 @@ public class SimplePermitLimiter implements PermitLimiter {
 
         // stats
         if (singleton) {
-            statsLogger.registerGauge("permits", new Gauge<Number>() {
+            statsLogger.registerGauge("num_permits", new Gauge<Number>() {
                 @Override
                 public Number getDefaultValue() {
                     return 0;

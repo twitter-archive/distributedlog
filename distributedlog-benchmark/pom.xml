@@ -33,7 +33,7 @@
     </dependency>
     <dependency>
       <groupId>com.twitter</groupId>
-      <artifactId>distributedlog-core</artifactId>
+      <artifactId>distributedlog-service</artifactId>
       <version>${project.parent.version}</version>
     </dependency>
     <dependency>
