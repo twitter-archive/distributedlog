@@ -183,3 +183,5 @@ numLongPollWorkerThreads=4
 statsProviderClass=org.apache.bookkeeper.stats.CodahaleMetricsServletProvider
 # Exporting codahale stats
 codahaleStatsHttpPort=9001
+useHostNameAsBookieID=true
+allowLoopback=true
