@@ -44,28 +44,6 @@ if [ -h /opt/distributedlog-trunk ]; then
 fi
 ln -s /vagrant /opt/distributedlog-trunk
 
-#get_kafka() {
-#    version=$1
-#
-#    kafka_dir=/opt/kafka-$version
-#    url=https://s3-us-west-2.amazonaws.com/kafka-packages-$version/kafka_2.10-$version.tgz
-#    if [ ! -d /opt/kafka-$version ]; then
-#        pushd /tmp
-#        curl -O $url
-#        file_tgz=`basename $url`
-#        tar -xzf $file_tgz
-#        rm -rf $file_tgz
-#
-#        file=`basename $file_tgz .tgz`
-#        mv $file $kafka_dir
-#        popd
-#    fi
-#}
-
-#get_kafka 0.8.2.2
-#chmod a+rw /opt/kafka-0.8.2.2
-#get_kafka 0.9.0.1
-#chmod a+rw /opt/kafka-0.9.0.1
 
 # For EC2 nodes, we want to use /mnt, which should have the local disk. On local
 # VMs, we can just create it if it doesn't exist and use it like we'd use
