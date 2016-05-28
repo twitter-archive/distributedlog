@@ -61,5 +61,4 @@ if [ $BROKER_ID -eq "1" ]; then
 ./distributedlog-service/bin/dlog admin bind -dlzr zk1:2181 -dlzw zk1:2181 -s zk1:2181 -bkzr zk1:2181 \
       -l /messaging/bookkeeper/ledgers -i false -r true -c distributedlog://zk1:2181/messaging/distributedlog/mynamespace
 fi
-
-WP_SHARD_ID=$BROKER_ID WP_SERVICE_PORT=4181 WP_STATS_PORT=20001 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
+WP_NAMESPACE=distributedlog://zk1:2181/messaging/distributedlog/mynamespace WP_SHARD_ID=$BROKER_ID WP_SERVICE_PORT=4181 WP_STATS_PORT=20001 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
