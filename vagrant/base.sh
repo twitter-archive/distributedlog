@@ -24,16 +24,16 @@ if [ -z `which javac` ]; then
     apt-get -y update
 
     # Try to share cache. See Vagrantfile for details
-    mkdir -p /var/cache/oracle-jdk7-installer
-    if [ -e "/tmp/oracle-jdk7-installer-cache/" ]; then
-        find /tmp/oracle-jdk7-installer-cache/ -not -empty -exec cp '{}' /var/cache/oracle-jdk7-installer/ \;
+    mkdir -p /var/cache/oracle-jdk8-installer
+    if [ -e "/tmp/oracle-jdk8-installer-cache/" ]; then
+        find /tmp/oracle-jdk8-installer-cache/ -not -empty -exec cp '{}' /var/cache/oracle-jdk8-installer/ \;
     fi
 
     /bin/echo debconf shared/accepted-oracle-license-v1-1 select true | /usr/bin/debconf-set-selections
-    apt-get -y install oracle-java7-installer oracle-java7-set-default
+    apt-get -y install oracle-java8-installer oracle-java8-set-default
 
-    if [ -e "/tmp/oracle-jdk7-installer-cache/" ]; then
-        cp -R /var/cache/oracle-jdk7-installer/* /tmp/oracle-jdk7-installer-cache
+    if [ -e "/tmp/oracle-jdk8-installer-cache/" ]; then
+        cp -R /var/cache/oracle-jdk8-installer/* /tmp/oracle-jdk8-installer-cache
     fi
 fi
 
