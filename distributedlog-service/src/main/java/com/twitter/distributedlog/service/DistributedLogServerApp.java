@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog.service;
 
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.finagle.stats.NullStatsReceiver;
@@ -33,6 +34,7 @@ import org.apache.commons.configuration.ConfigurationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
@@ -107,14 +109,15 @@ public class DistributedLogServerApp {
                         + configFile + ".");
             }
         }
-        Optional<String> statsProviderCls = getOptionalStringArg(cmdline, "pd");
         // load the stats provider
-        final StatsProvider statsProvider;
-        if (statsProviderCls.isPresent()) {
-            statsProvider = ReflectionUtils.newInstance(statsProviderCls.get(), StatsProvider.class);
-        } else {
-            statsProvider = new NullStatsProvider();
-        }
+        final StatsProvider statsProvider = getOptionalStringArg(cmdline, "pd")
+                .transform(new Function<String, StatsProvider>() {
+                    @Nullable
+                    @Override
+                    public StatsProvider apply(@Nullable String name) {
+                        return ReflectionUtils.newInstance(name, StatsProvider.class);
+                    }
+                }).or(new NullStatsProvider());
         statsProvider.start(dlConf);
 
         final DistributedLogServer server = DistributedLogServer.runServer(
