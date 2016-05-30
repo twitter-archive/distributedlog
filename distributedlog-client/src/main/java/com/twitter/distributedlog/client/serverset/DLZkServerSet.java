@@ -18,6 +18,7 @@
 package com.twitter.distributedlog.client.serverset;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.net.HostAndPort;
 import com.twitter.common.quantity.Amount;
 import com.twitter.common.quantity.Time;
 import com.twitter.common.zookeeper.ServerSet;
@@ -47,25 +48,14 @@ public class DLZkServerSet {
     private static Iterable<InetSocketAddress> getZkAddresses(URI uri) {
         String zkServers = getZKServersFromDLUri(uri);
         String[] zkServerList = StringUtils.split(zkServers, ',');
-        InetSocketAddress[] zkAddresses = new InetSocketAddress[zkServerList.length];
-        int i = 0;
+        ImmutableList.Builder<InetSocketAddress> builder = ImmutableList.builder();
         for (String zkServer : zkServerList) {
-            String[] hostAndPort = StringUtils.split(zkServer, ':');
-            int port = 2181;
-            String host = hostAndPort[0];
-            if (hostAndPort.length == 2) {
-                try {
-                    port = Integer.parseInt(hostAndPort[1]);
-                } catch (NumberFormatException nfe) {
-                    logger.warn("Failed to retrieve zookeeper server port from {}. Use default port 2181.",
-                            zkServer, nfe);
-                }
-            }
-            InetSocketAddress address = InetSocketAddress.createUnresolved(host, port);
-            zkAddresses[i] = address;
-            ++i;
+            HostAndPort hostAndPort = HostAndPort.fromString(zkServer).withDefaultPort(2181);
+            builder.add(InetSocketAddress.createUnresolved(
+                    hostAndPort.getHostText(),
+                    hostAndPort.getPort()));
         }
-        return ImmutableList.copyOf(zkAddresses);
+        return builder.build();
     }
 
     public static DLZkServerSet of(URI uri,
