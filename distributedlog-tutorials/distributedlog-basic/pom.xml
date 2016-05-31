@@ -21,7 +21,7 @@
   <parent>
     <artifactId>distributedlog</artifactId>
     <groupId>com.twitter</groupId>
-    <version>0.3.51-SNAPSHOT</version>
+    <version>0.3.51-RC1</version>
     <relativePath>../..</relativePath>
   </parent>
   <groupId>com.twitter</groupId>
