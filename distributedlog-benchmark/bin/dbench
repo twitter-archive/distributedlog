@@ -50,7 +50,6 @@ fi
 BINDIR=`dirname "$0"`
 DLOG_HOME=`cd $BINDIR/.. > /dev/null;pwd`
 
-DEFAULT_BK_CONF=$DLOG_HOME/conf/bookie.conf
 DEFAULT_LOG_CONF=$DLOG_HOME/conf/log4j.properties
 
 source $DLOG_HOME/conf/dlogenv.sh
@@ -71,19 +70,13 @@ elif [ -e "$BUILT_JAR" ]; then
     DLOG_JAR=$BUILT_JAR
 fi
 
-dlog_help() {
+dbench_help() {
     cat <<EOF
 Usage: dlog <command>
 where command is one of:
-    local               Run distributedlog sandbox
-    example             Run distributedlog example
-    tool                Run distributedlog tool
-    proxy_tool          Run distributedlog proxy tool to interact with proxies
-    balancer            Run distributedlog balancer
-    admin               Run distributedlog admin tool
-    zkshell             Run zookeeper shell
-    bkshell             Run bookkeeper shell
-    help                This help message
+    bkwrite             Benchmark bookkeeper using distributedlog core library
+    write               Benchmark distributedlog write proxy using thin client
+    read                Benchmark distributedlog read using distributedlog core library
 
 or command is the full name of a class with a defined main() method.
 
@@ -91,7 +84,6 @@ Environment variables:
    DLOG_LOG_CONF        Log4j configuration file (default $DEFAULT_LOG_CONF)
    DLOG_EXTRA_OPTS      Extra options to be passed to the jvm
    DLOG_EXTRA_CLASSPATH Add extra paths to the dlog classpath
-   BOOKIE_CONF          Bookie Configuration file (default: $DEFAULT_BK_CONF)
 
 These variable can also be set in conf/dlogenv.sh
 EOF
@@ -124,7 +116,7 @@ fi
 
 # if no args specified, show usage
 if [ $# = 0 ]; then
-    dlog_help;
+    dbench_help;
     exit 1;
 fi
 
@@ -134,10 +126,6 @@ shift
 
 if [ -z "$DLOG_LOG_CONF" ]; then
     DLOG_LOG_CONF=$DEFAULT_LOG_CONF
-fi
-
-if [ -z "$BOOKIE_CONF" ]; then
-    BOOKIE_CONF=$DEFAULT_BK_CONF
 fi
 
 DLOG_CLASSPATH="$DLOG_JAR:$DLOG_CLASSPATH:$DLOG_EXTRA_CLASSPATH"
@@ -155,32 +143,60 @@ OPTS="$OPTS -Djava.net.preferIPv4Stack=true"
 # log directory & file
 DLOG_ROOT_LOGGER=${DLOG_ROOT_LOGGER:-"INFO,R"}
 DLOG_LOG_DIR=${DLOG_LOG_DIR:-"$DLOG_HOME/logs"}
-DLOG_LOG_FILE=${DLOG_LOG_FILE:-"dlog.log"}
+DLOG_LOG_FILE=${DLOG_LOG_FILE:-"dbench.log"}
 
 #Configure log configuration system properties
 OPTS="$OPTS -Ddlog.root.logger=$DLOG_ROOT_LOGGER"
 OPTS="$OPTS -Ddlog.log.dir=$DLOG_LOG_DIR"
 OPTS="$OPTS -Ddlog.log.file=$DLOG_LOG_FILE"
 
+BENCH_ARGS="""
+  --provider ${STATS_PROVIDER} \\
+  --conf ${BENCH_CONF_FILE:-"${DLOG_HOME}/conf/benchmark.conf"} \\
+  --streamprefix ${STREAM_NAME_PREFIX} \\
+  --duration ${BENCHMARK_DURATION} \\
+  --shard ${BENCHMARK_SHARD_ID} \\
+  --uri ${DL_NAMESPACE} \\
+  --streamcount ${NUM_STREAMS} \\
+  --thriftmux \\
+  --handshake-with-client-info \\
+  --concurrency 1
+"""
+
 #Change to DLOG_HOME to support relative paths
 cd "$DLOG_HOME"
-if [ $COMMAND == "local" ]; then
-    exec java $OPTS $JMX_ARGS com.twitter.distributedlog.LocalDLMEmulator $@
-elif [ $COMMAND == "tool" ]; then
-    exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.tools.DistributedLogTool $@
-elif [ $COMMAND == "proxy_tool" ]; then
-    exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.service.tools.ProxyTool $@
-elif [ $COMMAND == "balancer" ]; then
-    exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.service.balancer.BalancerTool $@
-elif [ $COMMAND == "admin" ]; then
-    exec java $OPTS com.twitter.distributedlog.tools.Tool com.twitter.distributedlog.admin.DistributedLogAdmin $@
-elif [ $COMMAND == "zkshell" ]; then
-    exec java $OPTS org.apache.zookeeper.ZooKeeperMain -server $@
-elif [ $COMMAND == "bkshell" ]; then
-    ENTRY_FORMATTER_ARG="-DentryFormatterClass=${ENTRY_FORMATTER_CLASS:-org.apache.bookkeeper.util.StringEntryFormatter}"
-    exec java $OPTS $ENTRY_FORMATTER_ARG org.apache.bookkeeper.bookie.BookieShell -conf $BOOKIE_CONF $@
+if [ $COMMAND == "bkwrite" ]; then
+    BENCH_WRITE_ARGS="""
+    --messagesize ${MSG_SIZE} \\
+    --rate ${INITIAL_RATE} \\
+    --max-rate ${MAX_RATE} \\
+    --change-rate ${CHANGE_RATE} \\
+    --change-interval ${CHANGE_RATE_INTERVAL}
+    """
+    BENCH_ARGS="${BENCH_ARGS} \\ ${BENCH_WRITE_ARGS} \\ --mode dlwrite \\"
+    exec java $OPTS $JMX_ARGS com.twitter.distributedlog.benchmark.Benchmarker $BENCH_ARGS $@
+elif [ $COMMAND == "write" ]; then
+    BENCH_WRITE_ARGS="""
+    --messagesize ${MSG_SIZE} \\
+    --rate ${INITIAL_RATE} \\
+    --max-rate ${MAX_RATE} \\
+    --change-rate ${CHANGE_RATE} \\
+    --change-interval ${CHANGE_RATE_INTERVAL} \\
+    --finagle-name ${DL_WP_FINAGLE_NAME}
+    """
+    BENCH_ARGS="${BENCH_ARGS} \\ ${BENCH_WRITE_ARGS} \\ --mode write \\"
+    exec java $OPTS $JMX_ARGS com.twitter.distributedlog.benchmark.Benchmarker $BENCH_ARGS $@
+elif [ $COMMAND == "read" ]; then
+    BENCH_READ_ARGS="""
+    --readers-per-stream ${NUM_READERS_PER_STREAM} \\
+    --max-stream-id ${MAX_STREAM_ID} \\
+    --truncation-interval ${TRUNCATION_INTERVAL} \\
+    --finagle-name ${DL_WP_FINAGLE_NAME}
+    """
+    BENCH_ARGS="${BENCH_ARGS} \\ ${BENCH_READ_ARGS} \\ --mode read \\"
+    exec java $OPTS $JMX_ARGS com.twitter.distributedlog.benchmark.Benchmarker $BENCH_ARGS $@
 elif [ $COMMAND == "help" ]; then
-    dlog_help;
+    dbench_help;
 else
     exec java $OPTS $COMMAND $@
 fi

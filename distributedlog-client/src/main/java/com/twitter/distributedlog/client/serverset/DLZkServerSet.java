@@ -18,12 +18,16 @@
 package com.twitter.distributedlog.client.serverset;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.net.HostAndPort;
 import com.twitter.common.quantity.Amount;
 import com.twitter.common.quantity.Time;
 import com.twitter.common.zookeeper.ServerSet;
 import com.twitter.common.zookeeper.ServerSets;
 import com.twitter.common.zookeeper.ZooKeeperClient;
+import org.apache.commons.lang.StringUtils;
 import org.apache.zookeeper.ZooDefs;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -33,19 +37,32 @@ import java.net.URI;
  */
 public class DLZkServerSet {
 
+    private static final Logger logger = LoggerFactory.getLogger(DLZkServerSet.class);
+
     static final String ZNODE_WRITE_PROXY = ".write_proxy";
 
     private static String getZKServersFromDLUri(URI uri) {
         return uri.getAuthority().replace(";", ",");
     }
 
+    private static Iterable<InetSocketAddress> getZkAddresses(URI uri) {
+        String zkServers = getZKServersFromDLUri(uri);
+        String[] zkServerList = StringUtils.split(zkServers, ',');
+        ImmutableList.Builder<InetSocketAddress> builder = ImmutableList.builder();
+        for (String zkServer : zkServerList) {
+            HostAndPort hostAndPort = HostAndPort.fromString(zkServer).withDefaultPort(2181);
+            builder.add(InetSocketAddress.createUnresolved(
+                    hostAndPort.getHostText(),
+                    hostAndPort.getPort()));
+        }
+        return builder.build();
+    }
+
     public static DLZkServerSet of(URI uri,
                                    int zkSessionTimeoutMs) {
         // Create zookeeper and server set
-        String zkServers = getZKServersFromDLUri(uri);
         String zkPath = uri.getPath() + "/" + ZNODE_WRITE_PROXY;
-        Iterable<InetSocketAddress> zkAddresses =
-                ImmutableList.of(InetSocketAddress.createUnresolved(zkServers, 2181));
+        Iterable<InetSocketAddress> zkAddresses = getZkAddresses(uri);
         ZooKeeperClient zkClient =
                 new ZooKeeperClient(Amount.of(zkSessionTimeoutMs, Time.MILLISECONDS), zkAddresses);
         ServerSet serverSet = ServerSets.create(zkClient, ZooDefs.Ids.OPEN_ACL_UNSAFE, zkPath);

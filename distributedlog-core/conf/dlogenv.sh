@@ -20,7 +20,9 @@
 # * limitations under the License.
 # */
 
-# default settings for starting distributedlog sandbox
+##################
+# General
+##################
 
 # Log4j configuration file
 # DLOG_LOG_CONF=
@@ -39,3 +41,37 @@
 
 # Configure the log file
 # DLOG_LOG_FILE=
+
+#################
+# ZooKeeper
+#################
+
+# Configure zookeeper root logger
+# ZK_ROOT_LOGGER=
+
+#################
+# Bookie
+#################
+
+# Configure bookie root logger
+# BK_ROOT_LOGGER=
+
+#################
+# Write Proxy
+#################
+
+# Configure write proxy root logger
+# WP_ROOT_LOGGER=
+
+# write proxy configuration file
+# WP_CONF_FILE=${DL_HOME}/conf/write_proxy.conf
+
+# port and stats port
+# WP_SERVICE_PORT=4181
+# WP_STATS_PORT=9000
+
+# shard id
+# WP_SHARD_ID=0
+
+# write proxy namespace
+# WP_NAMESPACE=distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace

@@ -86,7 +86,7 @@ public class DistributedLogServer {
     private final Optional<Integer> port;
     private final Optional<Integer> statsPort;
     private final Optional<Integer> shardId;
-    private final Optional<String> announcePath;
+    private final Optional<Boolean> announceServerSet;
     private final Optional<Boolean> thriftmux;
 
     DistributedLogServer(Optional<String> uri,
@@ -95,7 +95,7 @@ public class DistributedLogServer {
                          Optional<Integer> port,
                          Optional<Integer> statsPort,
                          Optional<Integer> shardId,
-                         Optional<String> announcePath,
+                         Optional<Boolean> announceServerSet,
                          Optional<Boolean> thriftmux,
                          StatsReceiver statsReceiver,
                          StatsProvider statsProvider) {
@@ -105,7 +105,7 @@ public class DistributedLogServer {
         this.port = port;
         this.statsPort = statsPort;
         this.shardId = shardId;
-        this.announcePath = announcePath;
+        this.announceServerSet = announceServerSet;
         this.thriftmux = thriftmux;
         this.statsReceiver = statsReceiver;
         this.statsProvider = statsProvider;
@@ -151,7 +151,7 @@ public class DistributedLogServer {
         logger.info("Starting stats provider : {}", statsProvider.getClass());
         statsProvider.start(dlConf);
 
-        if (announcePath.isPresent()) {
+        if (announceServerSet.isPresent() && announceServerSet.get()) {
             announcer = new ServerSetAnnouncer(
                     dlUri,
                     port.or(0),
@@ -378,7 +378,7 @@ public class DistributedLogServer {
      * @param port listen port
      * @param statsPort stats port
      * @param shardId shard id
-     * @param announcePath server set announce path
+     * @param announceServerSet whether to announce itself to server set
      * @param thriftmux flag to enable thrift mux
      * @param statsReceiver receiver to receive finagle stats
      * @param statsProvider provider to receive dl stats
@@ -394,7 +394,7 @@ public class DistributedLogServer {
                Optional<Integer> port,
                Optional<Integer> statsPort,
                Optional<Integer> shardId,
-               Optional<String> announcePath,
+               Optional<Boolean> announceServerSet,
                Optional<Boolean> thriftmux,
                StatsReceiver statsReceiver,
                StatsProvider statsProvider)
@@ -407,7 +407,7 @@ public class DistributedLogServer {
                 port,
                 statsPort,
                 shardId,
-                announcePath,
+                announceServerSet,
                 thriftmux,
                 statsReceiver,
                 statsProvider);

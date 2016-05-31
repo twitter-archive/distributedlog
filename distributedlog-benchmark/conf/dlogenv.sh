@@ -30,3 +30,63 @@
 
 # Add extra paths to the dlog classpath
 # DLOG_EXTRA_CLASSPATH=
+
+########################
+# Benchmark Arguments
+########################
+
+# Configuration File
+# BENCH_CONF_FILE=
+# Stats Provider
+STATS_PROVIDER=org.apache.bookkeeper.stats.CodahaleMetricsServletProvider
+# Stream Name Prefix
+STREAM_NAME_PREFIX=distributedlog-smoketest
+# Benchmark Run Duration in minutes
+BENCHMARK_DURATION=60
+# DL Namespace
+DL_NAMESPACE=distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace
+# Benchmark SHARD id
+BENCHMARK_SHARD_ID=0
+
+# How many streams
+NUM_STREAMS=100
+
+# Max stream id (exclusively)
+MAX_STREAM_ID=100
+
+#########
+# Writer
+#########
+
+# Start stream id
+START_STREAM_ID=0
+# End stream id (inclusively)
+END_STREAM_ID=99
+
+# Message Size
+MSG_SIZE=1024
+
+# Write Rate
+# Initial rate - messages per second
+INITIAL_RATE=1
+# Max rate - messages per second
+MAX_RATE=1000
+# Rate change each interval - messages per second
+CHANGE_RATE=100
+# Rate change interval, in seconds
+CHANGE_RATE_INTERVAL=300
+
+# DL Write Proxy Finagle Name
+DL_WP_FINAGLE_NAME='zk!127.0.0.1:2181!/messaging/distributedlog/mynamespace/.write_proxy'
+
+##########
+# Reader 
+##########
+
+### Reader could be run in a sharded way. Each shard is responsible for
+### reading a subset of the streams. A stream could be configured to be
+### read by multiple shards.
+NUM_READERS_PER_STREAM=1
+
+### Interval that reader issues truncate requests to truncate the streams, in seconds
+TRUNCATION_INTERVAL=600

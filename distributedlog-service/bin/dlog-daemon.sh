@@ -41,6 +41,9 @@ then
  . $DL_HOME/conf/dlogenv.sh
 fi
 
+SERVICE_PORT=${SERVICE_PORT:-"0"}
+SERVICE_ARGS=""
+
 # DLOG logging configuration
 DLOG_LOG_DIR=${DLOG_LOG_DIR:-"$DL_HOME/logs"}
 DLOG_ROOT_LOGGER=${DLOG_ROOT_LOGGER:-'INFO,R'}
@@ -64,15 +67,28 @@ service_class=$service
 case $service in
     (zookeeper)
         service_class="org.apache.zookeeper.server.quorum.QuorumPeerMain"
+        DLOG_ROOT_LOGGER=${ZK_ROOT_LOGGER:-'INFO,R'}
         ;;
     (bookie)
         service_class="org.apache.bookkeeper.proto.BookieServer"
+        DLOG_ROOT_LOGGER=${BK_ROOT_LOGGER:-'INFO,R'}
         ;;
     (bookie-rereplicator)
         service_class="org.apache.bookkeeper.replication.AutoRecoveryMain"
+        DLOG_ROOT_LOGGER=${BK_ROOT_LOGGER:-'INFO,R'}
         ;;
     (writeproxy)
         service_class="com.twitter.distributedlog.service.DistributedLogServerApp"
+        DLOG_ROOT_LOGGER=${WP_ROOT_LOGGER:-'INFO,R'}
+        WP_CONF_FILE=${WP_CONF_FILE:-"$DL_HOME/conf/write_proxy.conf"}
+        WP_SERVICE_PORT=${WP_SERVICE_PORT:-'4181'}
+        WP_STATS_PORT=${WP_STATS_PORT:-'9000'}
+        WP_STATS_PROVIDER=${WP_STATS_PROVIDER:-'org.apache.bookkeeper.stats.CodahaleMetricsServletProvider'}
+        WP_SHARD_ID=${WP_SHARD_ID:-'0'}
+        WP_NAMESPACE=${WP_NAMESPACE:-'distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace'}
+        SERVICE_PORT=${WP_SERVICE_PORT}
+        SERVICE_ARGS="--conf ${WP_CONF_FILE} --uri ${WP_NAMESPACE} --shard-id ${WP_SHARD_ID} --port ${WP_SERVICE_PORT} --stats-port ${WP_STATS_PORT} --stats-provider ${WP_STATS_PROVIDER} --announce --thriftmux"
+        DLOG_EXTRA_OPTS="${DLOG_EXTRA_OPTS} -DcodahaleStatsHttpPort=${WP_STATS_PORT} -Dserver_port=${WP_SERVICE_PORT} -Dserver_shard=${WP_SHARD_ID}"
         ;;
     (writeproxy-monitor)
         ;;
@@ -87,10 +103,11 @@ echo "doing $command $service ..."
 
 export DLOG_LOG_DIR=$DLOG_LOG_DIR
 export DLOG_ROOT_LOGGER=$DLOG_ROOT_LOGGER
-export DLOG_LOG_FILE=dlog-$service-$HOSTNAME.log
+export DLOG_LOG_FILE=dlog-$service-$HOSTNAME-$SERVICE_PORT.log
+export DLOG_EXTRA_OPTS=$DLOG_EXTRA_OPTS
 
-pid=$DLOG_PID_DIR/dlog-$service.pid
-out=$DLOG_LOG_DIR/dlog-$service-$HOSTNAME.out
+pid=$DLOG_PID_DIR/dlog-$service-$SERVICE_PORT.pid
+out=$DLOG_LOG_DIR/dlog-$service-$HOSTNAME-$SERVICE_PORT.out
 logfile=$DLOG_LOG_DIR/$DLOG_LOG_FILE
 
 rotate_out_log ()
@@ -125,7 +142,7 @@ case $command in
     rotate_out_log $out
     echo starting $service, logging to $logfile
     dlog=$DL_HOME/bin/dlog
-    nohup $dlog $service_class "$@" > "$out" 2>&1 < /dev/null &
+    nohup $dlog $service_class ${SERVICE_ARGS} "$@" > "$out" 2>&1 < /dev/null &
     echo $! > $pid
     sleep 1; head $out
     sleep 2;
