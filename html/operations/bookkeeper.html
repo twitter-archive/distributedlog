@@ -5,7 +5,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Release &mdash; DistributedLog 1.0 documentation</title>
+    <title>BookKeeper &mdash; DistributedLog 1.0 documentation</title>
     
     <link rel="stylesheet" href="../_static/override.css" type="text/css" />
     <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
@@ -40,9 +40,9 @@
     <script type="text/javascript" src="../_static/js/js.cookie.js"></script>
     <link rel="shortcut icon" href="../_static/docbird.ico"/>
     <link rel="top" title="DistributedLog 1.0 documentation" href="../index.html" />
-    <link rel="up" title="Developer" href="main.html" />
-    <link rel="next" title="FAQ" href="../faq.html" />
-    <link rel="prev" title="Developer" href="main.html" />
+    <link rel="up" title="Deployment &amp; Administration" href="main.html" />
+    <link rel="next" title="Performance" href="../performance/main.html" />
+    <link rel="prev" title="ZooKeeper" href="zookeeper.html" />
 <meta charset='utf-8'>
 <meta http-equiv='X-UA-Compatible' content='IE=edge,chrome=1'>
 <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1'>
@@ -157,14 +157,14 @@
 <li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../operations/main.html">Deployment &amp; Administration</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../operations/deployment.html">Cluster Setup &amp; Deployment</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/operations.html">DistributedLog Operations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/performance.html">Performance Tuning</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/bookkeeper.html">BookKeeper</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="main.html">Deployment &amp; Administration</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
@@ -181,8 +181,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
 </ul>
 </li>
-<li class="toctree-l1 current"><a class="reference internal" href="main.html">Developer</a><ul class="current">
-<li class="toctree-l2 current"><a class="current reference internal" href="">Release</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
@@ -285,22 +285,190 @@ $(function(){
     <div class="col-xs-12 col-sm-8 col-md-8 col-lg-8">
       <div class="db-content-body">
         
-  <div class="section" id="release">
-<h1>Release<a class="headerlink" href="#release" title="Permalink to this headline">¶</a></h1>
-<p>This page is a guide to build release for DistributedLog.</p>
-<div class="section" id="build-package">
-<h2>Build package<a class="headerlink" href="#build-package" title="Permalink to this headline">¶</a></h2>
-<p>Buidling the packages using <cite>scripts/snapshot</cite>.</p>
-<div class="highlight-python"><pre>./scripts/snapshot</pre>
-<div style='display:none;' class='raw-code'><pre>./scripts/snapshot</pre>
-</div></div>
-<p>The packages will be generated under <cite>dist/release</cite> directory, including:</p>
+  <div class="section" id="bookkeeper">
+<h1>BookKeeper<a class="headerlink" href="#bookkeeper" title="Permalink to this headline">¶</a></h1>
+<p>For reliable BookKeeper service, you should deploy BookKeeper in a cluster.</p>
+<div class="section" id="run-from-bookkeeper-source">
+<h2>Run from bookkeeper source<a class="headerlink" href="#run-from-bookkeeper-source" title="Permalink to this headline">¶</a></h2>
+<p>The version of BookKeeper that DistributedLog depends on is not the official opensource version.
+It is twitter's production version <cite>4.3.4-TWTTR</cite>, which is available in <cite>https://github.com/twitter/bookkeeper</cite>.
+We are working actively with BookKeeper community to merge all twitter's changes back to the community.</p>
+<p>The major changes in Twitter's bookkeeper includes:</p>
 <ul class="simple">
-<li><cite>distributedlog-service-{gitsha}.zip</cite>: This is a binary package to run distributedlog services.</li>
-<li><cite>distributedlog-benchmark-{gitsha}.zip</cite>: This is a binary package to run distributedlog benchmark.</li>
-<li><cite>distributedlog-tutorials-{gitsha}.zip</cite>: This is a binary package to run distributedlog tutorials.</li>
-<li><cite>distributedlog-all-{gitsha}.zip</cite>: This is a binary package contains all the above three packages.</li>
+<li><a class="reference external" href="https://issues.apache.org/jira/browse/BOOKKEEPER-670">BOOKKEEPER-670</a>: Long poll reads and LastAddConfirmed piggyback. It is to reduce the tailing read latency.</li>
+<li><a class="reference external" href="https://issues.apache.org/jira/browse/BOOKKEEPER-759">BOOKKEEPER-759</a>: Delay ensemble change if it doesn't break ack quorum constraint. It is to reduce the write latency on bookie failures.</li>
+<li><a class="reference external" href="https://issues.apache.org/jira/browse/BOOKKEEPER-757">BOOKKEEPER-757</a>: Ledger recovery improvements, to reduce the latency on ledger recovery.</li>
+<li>Misc improvements on bookie recovery and bookie storage.</li>
 </ul>
+<p>To build bookkeeper, run:</p>
+<ol class="arabic simple">
+<li>First checkout the bookkeeper source code from twitter's branch.</li>
+</ol>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ git clone https://github.com/twitter/bookkeeper.git bookkeeper
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ git clone https://github.com/twitter/bookkeeper.git bookkeeper</pre>
+</div></div>
+<ol class="arabic simple" start="2">
+<li>Build the bookkeeper package:</li>
+</ol>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ <span class="nb">cd</span> bookkeeper
+$ mvn clean package assembly:single -DskipTests
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ cd bookkeeper
+$ mvn clean package assembly:single -DskipTests</pre>
+</div></div>
+<p>However, since <cite>bookkeeper-server</cite> is one of the dependency of <cite>distributedlog-service</cite>.
+You could simply run bookkeeper using same set of scripts provided in <cite>distributedlog-service</cite>.
+In the following sections, we will describe how to run bookkeeper using the scripts provided in
+<cite>distributedlog-service</cite>.</p>
+</div>
+<div class="section" id="run-from-distributedlog-source">
+<h2>Run from distributedlog source<a class="headerlink" href="#run-from-distributedlog-source" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="build">
+<h3>Build<a class="headerlink" href="#build" title="Permalink to this headline">¶</a></h3>
+<p>First of all, build DistributedLog:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ mvn clean install -DskipTests
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ mvn clean install -DskipTests</pre>
+</div></div>
+</div>
+<div class="section" id="configuration">
+<h3>Configuration<a class="headerlink" href="#configuration" title="Permalink to this headline">¶</a></h3>
+<p>The configuration file <cite>bookie.conf</cite> under <cite>distributedlog-service/conf</cite> is a template of production
+configuration to run a bookie node. Most of the configuration settings are good for production usage.
+You might need to configure following settings according to your environment and hardware platform.</p>
+<div class="section" id="port">
+<h4>Port<a class="headerlink" href="#port" title="Permalink to this headline">¶</a></h4>
+<p>By default, the service port is <cite>3181</cite>, where the bookie server listens on. You can change the port
+to whatever port you like by modifying the following setting.</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="n">bookiePort</span><span class="o">=</span><span class="mi">3181</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>bookiePort=3181</pre>
+</div></div>
+</div>
+<div class="section" id="disks">
+<h4>Disks<a class="headerlink" href="#disks" title="Permalink to this headline">¶</a></h4>
+<p>You need to configure following settings according to the disk layout of your hardware. It is recommended
+to put <cite>journalDirectory</cite> under a separated disk from others for performance. It is okay to set
+<cite>indexDirectories</cite> to be same as <cite>ledgerDirectories</cite>. However, it is recommended to put <cite>indexDirectories</cite>
+to a SSD driver for better performance.</p>
+<div class="highlight-python"><pre># Directory Bookkeeper outputs its write ahead log
+journalDirectory=/tmp/data/bk/journal
+
+# Directory Bookkeeper outputs ledger snapshots
+ledgerDirectories=/tmp/data/bk/ledgers
+
+# Directory in which index files will be stored.
+indexDirectories=/tmp/data/bk/ledgers</pre>
+<div style='display:none;' class='raw-code'><pre># Directory Bookkeeper outputs its write ahead log
+journalDirectory=/tmp/data/bk/journal
+
+# Directory Bookkeeper outputs ledger snapshots
+ledgerDirectories=/tmp/data/bk/ledgers
+
+# Directory in which index files will be stored.
+indexDirectories=/tmp/data/bk/ledgers</pre>
+</div></div>
+<p>To better understand how bookie nodes work, please check <a class="reference external" href="http://bookkeeper.apache.org/">bookkeeper</a> website for more details.</p>
+</div>
+<div class="section" id="zookeeper">
+<h4>ZooKeeper<a class="headerlink" href="#zookeeper" title="Permalink to this headline">¶</a></h4>
+<p>You need to configure following settings to point the bookie to the zookeeper server that it is using.
+You need to make sure <cite>zkLedgersRootPath</cite> exists before starting the bookies.</p>
+<div class="highlight-python"><pre># Root zookeeper path to store ledger metadata
+# This parameter is used by zookeeper-based ledger manager as a root znode to
+# store all ledgers.
+zkLedgersRootPath=/messaging/bookkeeper/ledgers
+# A list of one of more servers on which zookeeper is running.
+zkServers=localhost:2181</pre>
+<div style='display:none;' class='raw-code'><pre># Root zookeeper path to store ledger metadata
+# This parameter is used by zookeeper-based ledger manager as a root znode to
+# store all ledgers.
+zkLedgersRootPath=/messaging/bookkeeper/ledgers
+# A list of one of more servers on which zookeeper is running.
+zkServers=localhost:2181</pre>
+</div></div>
+</div>
+<div class="section" id="stats-provider">
+<h4>Stats Provider<a class="headerlink" href="#stats-provider" title="Permalink to this headline">¶</a></h4>
+<p>Bookies use <cite>StatsProvider</cite> to expose its metrics. The <cite>StatsProvider</cite> is a pluggable library to
+adopt to various stats collecting systems. Please check <a class="reference internal" href="monitoring.html"><em>Monitoring</em></a> for more details.</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="c1"># stats provide - use `codahale` metrics library</span>
+<span class="n">statsProviderClass</span><span class="o">=</span><span class="n">org</span><span class="o">.</span><span class="n">apache</span><span class="o">.</span><span class="n">bookkeeper</span><span class="o">.</span><span class="n">stats</span><span class="o">.</span><span class="n">CodahaleMetricsServletProvider</span>
+
+<span class="c1">### Following settings are stats provider related settings</span>
+
+<span class="c1"># Exporting codahale stats in http port `9001`</span>
+<span class="n">codahaleStatsHttpPort</span><span class="o">=</span><span class="mi">9001</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre># stats provide - use `codahale` metrics library
+statsProviderClass=org.apache.bookkeeper.stats.CodahaleMetricsServletProvider
+
+### Following settings are stats provider related settings
+
+# Exporting codahale stats in http port `9001`
+codahaleStatsHttpPort=9001</pre>
+</div></div>
+</div>
+<div class="section" id="index-settings">
+<h4>Index Settings<a class="headerlink" href="#index-settings" title="Permalink to this headline">¶</a></h4>
+<ul class="simple">
+<li><cite>pageSize</cite>: size of a index page in ledger cache, in bytes. If there are large number
+of ledgers and each ledger has fewer entries, smaller index page would improve memory usage.</li>
+<li><cite>pageLimit</cite>: The maximum number of index pages in ledger cache. If nummber of index pages
+reaches the limitation, bookie server starts to swap some ledgers from memory to disk.
+Increase this value when swap becomes more frequent. But make sure <cite>pageLimit*pageSize</cite>
+should not be more than JVM max memory limitation.</li>
+</ul>
+</div>
+<div class="section" id="journal-settings">
+<h4>Journal Settings<a class="headerlink" href="#journal-settings" title="Permalink to this headline">¶</a></h4>
+<ul class="simple">
+<li><cite>journalMaxGroupWaitMSec</cite>: The maximum wait time for group commit. It is valid only when
+<cite>journalFlushWhenQueueEmpty</cite> is false.</li>
+<li><cite>journalFlushWhenQueueEmpty</cite>: Flag indicates whether to flush/sync journal. If it is <cite>true</cite>,
+bookie server will sync journal when there is no other writes in the journal queue.</li>
+<li><cite>journalBufferedWritesThreshold</cite>: The maximum buffered writes for group commit, in bytes.
+It is valid only when <cite>journalFlushWhenQueueEmpty</cite> is false.</li>
+<li><cite>journalBufferedEntriesThreshold</cite>: The maximum buffered writes for group commit, in entries.
+It is valid only when <cite>journalFlushWhenQueueEmpty</cite> is false.</li>
+</ul>
+<p>Setting <cite>journalFlushWhenQueueEmpty</cite> to <cite>true</cite> will produce low latency when the traffic is low.
+However, the latency varies a lost when the traffic is increased. So it is recommended to set
+<cite>journalMaxGroupWaitMSec</cite>, <cite>journalBufferedEntriesThreshold</cite> and <cite>journalBufferedWritesThreshold</cite>
+to reduce the number of fsyncs made to journal disk, to achieve sustained low latency.</p>
+</div>
+<div class="section" id="thread-settings">
+<h4>Thread Settings<a class="headerlink" href="#thread-settings" title="Permalink to this headline">¶</a></h4>
+<p>It is recommended to configure following settings to align with the cpu cores of the hardware.</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="n">numAddWorkerThreads</span><span class="o">=</span><span class="mi">4</span>
+<span class="n">numJournalCallbackThreads</span><span class="o">=</span><span class="mi">4</span>
+<span class="n">numReadWorkerThreads</span><span class="o">=</span><span class="mi">4</span>
+<span class="n">numLongPollWorkerThreads</span><span class="o">=</span><span class="mi">4</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>numAddWorkerThreads=4
+numJournalCallbackThreads=4
+numReadWorkerThreads=4
+numLongPollWorkerThreads=4</pre>
+</div></div>
+</div>
+</div>
+<div class="section" id="run">
+<h3>Run<a class="headerlink" href="#run" title="Permalink to this headline">¶</a></h3>
+<p>As <cite>bookkeeper-server</cite> is shipped as part of <cite>distributedlog-service</cite>, you could use the <cite>dlog-daemon.sh</cite>
+script to start <cite>bookie</cite> as daemon thread.</p>
+<p>Start the bookie:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ ./distributedlog-service/bin/dlog-daemon.sh start bookie --conf /path/to/bookie/conf
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-service/bin/dlog-daemon.sh start bookie --conf /path/to/bookie/conf</pre>
+</div></div>
+<p>Stop the bookie:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ ./distributedlog-service/bin/dlog-daemon.sh stop bookie
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-service/bin/dlog-daemon.sh stop bookie</pre>
+</div></div>
+<p>Please check <a class="reference external" href="http://bookkeeper.apache.org/">bookkeeper</a> website for more details.</p>
+</div>
 </div>
 </div>
 
@@ -364,14 +532,14 @@ $(function(){
 <li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../operations/main.html">Deployment &amp; Administration</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../operations/deployment.html">Cluster Setup &amp; Deployment</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/operations.html">DistributedLog Operations</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/performance.html">Performance Tuning</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../operations/bookkeeper.html">BookKeeper</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="main.html">Deployment &amp; Administration</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
@@ -388,8 +556,8 @@ $(function(){
 <li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
 </ul>
 </li>
-<li class="toctree-l1 current"><a class="reference internal" href="main.html">Developer</a><ul class="current">
-<li class="toctree-l2 current"><a class="current reference internal" href="">Release</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
@@ -419,10 +587,10 @@ $(function(){
           <br/>
           
 <div id="sourcelink">
-  <a href="git@github.com:twitter/distributedlog.git/tree/master/docs/developer/release.rst"
+  <a href="git@github.com:twitter/distributedlog.git/tree/master/docs/operations/bookkeeper.rst"
      rel="nofollow">Source</a>
   
-  <a href="../_sources/developer/release.txt"
+  <a href="../_sources/operations/bookkeeper.txt"
      rel="nofollow">Raw</a>
   <a href="../__docbird-build.log"
      rel="nofollow">Build Log</a>

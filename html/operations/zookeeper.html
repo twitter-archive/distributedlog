@@ -41,7 +41,7 @@
     <link rel="shortcut icon" href="../_static/docbird.ico"/>
     <link rel="top" title="DistributedLog 1.0 documentation" href="../index.html" />
     <link rel="up" title="Deployment &amp; Administration" href="main.html" />
-    <link rel="next" title="Performance" href="../performance/main.html" />
+    <link rel="next" title="BookKeeper" href="bookkeeper.html" />
     <link rel="prev" title="Monitoring" href="monitoring.html" />
 <meta charset='utf-8'>
 <meta http-equiv='X-UA-Compatible' content='IE=edge,chrome=1'>
@@ -108,6 +108,7 @@
       <div class="db-toc" role="complementary">
         <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -163,6 +164,7 @@
 <li class="toctree-l2"><a class="reference internal" href="hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html">Monitoring</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
@@ -264,9 +266,9 @@ $(function(){
       <span class="db-project-link-label">HEALTH</span>
         
         <h3 style="margin-top: 0">
-<!--        <a href="//techdocs/checklist.html" class="label label-success">-->
+<!--        <a href="/techdocs/checklist.html" class="label label-success">-->
         <a href="/report/distributedlog" class="">
-          7.5 / 10
+          9.0 / 10
           <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
         </a>
         
@@ -289,6 +291,74 @@ $(function(){
 nodes. There is no constraints on the number of Zookeeper nodes you
 need. One node is enough to run your cluster, but for reliability
 purpose, you should run at least 3 nodes.</p>
+<div class="section" id="version">
+<h2>Version<a class="headerlink" href="#version" title="Permalink to this headline">¶</a></h2>
+<p>DistributedLog leverages zookeepr <cite>multi</cite> operations for metadata updates.
+So the minimum version of zookeeper is 3.4.*. We recommend to run stable
+zookeeper version <cite>3.4.8</cite>.</p>
+</div>
+<div class="section" id="run-zookeeper-from-distributedlog-source">
+<h2>Run ZooKeeper from distributedlog source<a class="headerlink" href="#run-zookeeper-from-distributedlog-source" title="Permalink to this headline">¶</a></h2>
+<p>Since <cite>zookeeper</cite> is one of the dependency of <cite>distributedlog-service</cite>. You could simply
+run <cite>zookeeper</cite> servers using same set of scripts provided in <cite>distributedlog-service</cite>.
+In the following sections, we will describe how to run zookeeper using the scripts provided
+in <cite>distributedlog-service</cite>.</p>
+<div class="section" id="build">
+<h3>Build<a class="headerlink" href="#build" title="Permalink to this headline">¶</a></h3>
+<p>First of all, build DistributedLog:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ mvn clean install -DskipTests
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ mvn clean install -DskipTests</pre>
+</div></div>
+</div>
+<div class="section" id="configuration">
+<h3>Configuration<a class="headerlink" href="#configuration" title="Permalink to this headline">¶</a></h3>
+<p>The configuration file <cite>zookeeper.conf.template</cite> under <cite>distributedlog-service/conf</cite> is a template of
+production configuration to run a zookeeper node. Most of the configuration settings are good for
+production usage. You might need to configure following settings according to your environment and
+hardware platform.</p>
+<div class="section" id="ensemble">
+<h4>Ensemble<a class="headerlink" href="#ensemble" title="Permalink to this headline">¶</a></h4>
+<p>You need to configure the zookeeper servers form this ensemble as below:</p>
+<div class="highlight-python"><pre>server.1=127.0.0.1:2710:3710:participant;0.0.0.0:2181</pre>
+<div style='display:none;' class='raw-code'><pre>server.1=127.0.0.1:2710:3710:participant;0.0.0.0:2181</pre>
+</div></div>
+<p>Please check <a class="reference external" href="http://zookeeper.apache.org/">zookeeper</a> website for more configurations.</p>
+</div>
+<div class="section" id="disks">
+<h4>Disks<a class="headerlink" href="#disks" title="Permalink to this headline">¶</a></h4>
+<p>You need to configure following settings according to the disk layout of your hardware.
+It is recommended to put <cite>dataLogDir</cite> under a separated disk from others for performance.</p>
+<div class="highlight-python"><pre># the directory where the snapshot is stored.
+dataDir=/tmp/data/zookeeper
+
+# where txlog  are written
+dataLogDir=/tmp/data/zookeeper/txlog</pre>
+<div style='display:none;' class='raw-code'><pre># the directory where the snapshot is stored.
+dataDir=/tmp/data/zookeeper
+
+# where txlog  are written
+dataLogDir=/tmp/data/zookeeper/txlog</pre>
+</div></div>
+</div>
+</div>
+<div class="section" id="run">
+<h3>Run<a class="headerlink" href="#run" title="Permalink to this headline">¶</a></h3>
+<p>As <cite>zookeeper</cite> is shipped as part of <cite>distributedlog-service</cite>, you could use the <cite>dlog-daemon.sh</cite>
+script to start <cite>zookeeper</cite> as daemon thread.</p>
+<p>Start the zookeeper:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ ./distributedlog-service/bin/dlog-daemon.sh start zookeeper /path/to/zookeeper.conf
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-service/bin/dlog-daemon.sh start zookeeper /path/to/zookeeper.conf</pre>
+</div></div>
+<p>Stop the zookeeper:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ ./distributedlog-service/bin/dlog-daemon.sh stop zookeeper
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-service/bin/dlog-daemon.sh stop zookeeper</pre>
+</div></div>
+<p>Please check <a class="reference external" href="http://zookeeper.apache.org/">zookeeper</a> website for more details.</p>
+</div>
+</div>
 </div>
 
 
@@ -302,6 +372,7 @@ purpose, you should run at least 3 nodes.</p>
           </ul>
           <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -357,6 +428,7 @@ purpose, you should run at least 3 nodes.</p>
 <li class="toctree-l2"><a class="reference internal" href="hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html">Monitoring</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
@@ -416,7 +488,7 @@ purpose, you should run at least 3 nodes.</p>
 </div>
         </p>
         <p>
-          Built and hosted by <a href="//">DocBird</a>. 
+          Built and hosted by <a href="/">DocBird</a>. 
         </p>
       </div>
     </div>

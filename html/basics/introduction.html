@@ -108,6 +108,7 @@
       <div class="db-toc" role="complementary">
         <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -163,6 +164,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
@@ -264,9 +266,9 @@ $(function(){
       <span class="db-project-link-label">HEALTH</span>
         
         <h3 style="margin-top: 0">
-<!--        <a href="//techdocs/checklist.html" class="label label-success">-->
+<!--        <a href="/techdocs/checklist.html" class="label label-success">-->
         <a href="/report/distributedlog" class="">
-          7.5 / 10
+          9.0 / 10
           <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
         </a>
         
@@ -307,7 +309,7 @@ from logs and process the records are <em>readers</em>.</p>
 <h3>Log Records<a class="headerlink" href="#log-records" title="Permalink to this headline">¶</a></h3>
 <p>Each <strong>log record</strong> is a sequence of bytes.
 <strong>Log records</strong> are written sequentially into a <em>log stream</em>, and will be assigned with
-an unique sequence number <em>called</em> <strong>DLSN</strong> (DistributedLog Sequence Number). Besides <em>DLSN</em>,
+a unique sequence number <em>called</em> <strong>DLSN</strong> (DistributedLog Sequence Number). Besides <em>DLSN</em>,
 applications could assign its own sequence number while constructing log records. The
 application defined sequence number is called <strong>TransactionID</strong> (<em>txid</em>). Either <em>DLSN</em>
 or <em>TransactionID</em> could be used for positioning readers to start reading from a specific
@@ -333,7 +335,7 @@ care about the data within a period of time.</p>
 <p>The <em>log streams</em> belong to same organization are usually categorized and managed under
 a <strong>namespace</strong>. A DL <strong>namespace</strong> is basically for applications to locate where the
 <em>log streams</em> are. Applications could <em>create</em> and <em>delete</em> streams under a namespace,
-and also be able to <em>truncate</em> a stream to given sequence number (either <em>DLSN</em> <em>TransactionID</em>).</p>
+and also be able to <em>truncate</em> a stream to given sequence number (either <em>DLSN</em> or <em>TransactionID</em>).</p>
 </div>
 </div>
 <div class="section" id="writers">
@@ -346,7 +348,7 @@ to a same log when network partition happens - via fencing mechanism
 in log segment store.</p>
 <p>The log writers are served and managed in a service tier called <em>Write Proxy</em>.
 The <em>Write Proxy</em> is used for accepting fan-in writes from large number
-of clients. More on <strong>Fan-in and Fan-out</strong> in a second.</p>
+of clients. Details on <strong>Fan-in and Fan-out</strong> can be found further into this doc.</p>
 </div>
 <div class="section" id="readers">
 <h2>Readers<a class="headerlink" href="#readers" title="Permalink to this headline">¶</a></h2>
@@ -362,7 +364,7 @@ the reader positions along with SSTables, so they would resume applying transact
 from the positions stored in SSTables. Tracking reader positions could easily be done
 in application level using various stores (e.g. ZooKeeper, FileSystem, or Key/Value Stores).</p>
 <p>The log records could be cached in a service tier called <em>Read Proxy</em>, to serve
-large number of readers. More on <strong>Fan-in and Fan-out</strong> in a second.</p>
+large number of readers. Details on <strong>Fan-in and Fan-out</strong> can be found further into this doc.</p>
 </div>
 <div class="section" id="fan-in-and-fan-out">
 <h2>Fan-in and Fan-out<a class="headerlink" href="#fan-in-and-fan-out" title="Permalink to this headline">¶</a></h2>
@@ -398,6 +400,7 @@ thousands of readers are consuming a same log stream.</p>
           </ul>
           <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -453,6 +456,7 @@ thousands of readers are consuming a same log stream.</p>
 <li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
@@ -512,7 +516,7 @@ thousands of readers are consuming a same log stream.</p>
 </div>
         </p>
         <p>
-          Built and hosted by <a href="//">DocBird</a>. 
+          Built and hosted by <a href="/">DocBird</a>. 
         </p>
       </div>
     </div>

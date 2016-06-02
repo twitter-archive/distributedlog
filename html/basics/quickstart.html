@@ -108,6 +108,7 @@
       <div class="db-toc" role="complementary">
         <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -163,6 +164,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
@@ -264,9 +266,9 @@ $(function(){
       <span class="db-project-link-label">HEALTH</span>
         
         <h3 style="margin-top: 0">
-<!--        <a href="//techdocs/checklist.html" class="label label-success">-->
+<!--        <a href="/techdocs/checklist.html" class="label label-success">-->
         <a href="/report/distributedlog" class="">
-          7.5 / 10
+          9.0 / 10
           <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
         </a>
         
@@ -326,12 +328,12 @@ Created binding on distributedlog://127.0.0.1:7000/messaging/my_namespace.</pre>
 <div class="section" id="step-4-create-some-log-streams">
 <h2>Step 4: Create some log streams<a class="headerlink" href="#step-4-create-some-log-streams" title="Permalink to this headline">¶</a></h2>
 <p>Let's create 5 log streams, prefixed with <cite>messaging-test-</cite>.</p>
-<div class="highlight-python"><pre>&gt; ./distributedlog-service/bin/dlog tool create -u distributedlog://127.0.0.1:7000/messaging/distributedlog -r messaging-stream- -e 1-5</pre>
-<div style='display:none;' class='raw-code'><pre>&gt; ./distributedlog-service/bin/dlog tool create -u distributedlog://127.0.0.1:7000/messaging/distributedlog -r messaging-stream- -e 1-5</pre>
+<div class="highlight-python"><pre>&gt; ./distributedlog-service/bin/dlog tool create -u distributedlog://127.0.0.1:7000/messaging/my_namespace -r messaging-stream- -e 1-5</pre>
+<div style='display:none;' class='raw-code'><pre>&gt; ./distributedlog-service/bin/dlog tool create -u distributedlog://127.0.0.1:7000/messaging/my_namespace -r messaging-stream- -e 1-5</pre>
 </div></div>
 <p>We can now see the streams if we run the <cite>list</cite> command from the tool.</p>
-<div class="highlight-python"><pre>&gt; ./distributedlog-service/bin/dlog tool list -u distributedlog://127.0.0.1:7000/messaging/distributedlog
-Streams under distributedlog://127.0.0.1:7000/messaging/distributedlog :
+<div class="highlight-python"><pre>&gt; ./distributedlog-service/bin/dlog tool list -u distributedlog://127.0.0.1:7000/messaging/my_namespace
+Streams under distributedlog://127.0.0.1:7000/messaging/my_namespace :
 --------------------------------
 messaging-stream-1
 messaging-stream-3
@@ -339,8 +341,8 @@ messaging-stream-2
 messaging-stream-4
 messaging-stream-5
 --------------------------------</pre>
-<div style='display:none;' class='raw-code'><pre>&gt; ./distributedlog-service/bin/dlog tool list -u distributedlog://127.0.0.1:7000/messaging/distributedlog
-Streams under distributedlog://127.0.0.1:7000/messaging/distributedlog :
+<div style='display:none;' class='raw-code'><pre>&gt; ./distributedlog-service/bin/dlog tool list -u distributedlog://127.0.0.1:7000/messaging/my_namespace
+Streams under distributedlog://127.0.0.1:7000/messaging/my_namespace :
 --------------------------------
 messaging-stream-1
 messaging-stream-3
@@ -352,20 +354,20 @@ messaging-stream-5
 </div>
 <div class="section" id="step-5-start-a-write-proxy">
 <h2>Step 5: Start a write proxy<a class="headerlink" href="#step-5-start-a-write-proxy" title="Permalink to this headline">¶</a></h2>
-<p>Now, lets start a write proxy server that serves writes to distributedlog namespace <cite>distributedlog://127.0.0.1/messaging/distributedlog</cite>. The server listens on 8000 to accept fan-in write requests.</p>
-<div class="highlight-python"><pre>&gt; ./distributedlog-service/bin/dlog com.twitter.distributedlog.service.DistributedLogServerApp -p 8000 --shard-id 1 -sp 8001 -u distributedlog://127.0.0.1:7000/messaging/distributedlog -mx -c ${DL_HOME}/distributedlog-service/conf/distributedlog_proxy.conf</pre>
-<div style='display:none;' class='raw-code'><pre>&gt; ./distributedlog-service/bin/dlog com.twitter.distributedlog.service.DistributedLogServerApp -p 8000 --shard-id 1 -sp 8001 -u distributedlog://127.0.0.1:7000/messaging/distributedlog -mx -c ${DL_HOME}/distributedlog-service/conf/distributedlog_proxy.conf</pre>
+<p>Now, lets start a write proxy server that serves writes to distributedlog namespace <cite>distributedlog://127.0.0.1/messaging/my_namespace</cite>. The server listens on 8000 to accept fan-in write requests.</p>
+<div class="highlight-python"><pre>&gt; ./distributedlog-service/bin/dlog-daemon.sh start writeproxy -p 8000 --shard-id 1 -sp 8001 -u distributedlog://127.0.0.1:7000/messaging/my_namespace -mx -c `pwd`/distributedlog-service/conf/distributedlog_proxy.conf</pre>
+<div style='display:none;' class='raw-code'><pre>&gt; ./distributedlog-service/bin/dlog-daemon.sh start writeproxy -p 8000 --shard-id 1 -sp 8001 -u distributedlog://127.0.0.1:7000/messaging/my_namespace -mx -c `pwd`/distributedlog-service/conf/distributedlog_proxy.conf</pre>
 </div></div>
 </div>
-<div class="section" id="step-7-tail-reading-records">
-<h2>Step 7: Tail reading records<a class="headerlink" href="#step-7-tail-reading-records" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="step-6-tail-reading-records">
+<h2>Step 6: Tail reading records<a class="headerlink" href="#step-6-tail-reading-records" title="Permalink to this headline">¶</a></h2>
 <p>The distributedlog tutorial has a multi-streams reader that will dump out received records to standard output.</p>
-<div class="highlight-python"><pre>&gt; ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:7000/messaging/distributedlog messaging-stream-1,messaging-stream-2,messaging-stream-3,messaging-stream-4,messaging-stream-5</pre>
-<div style='display:none;' class='raw-code'><pre>&gt; ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:7000/messaging/distributedlog messaging-stream-1,messaging-stream-2,messaging-stream-3,messaging-stream-4,messaging-stream-5</pre>
+<div class="highlight-python"><pre>&gt; ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:7000/messaging/my_namespace messaging-stream-1,messaging-stream-2,messaging-stream-3,messaging-stream-4,messaging-stream-5</pre>
+<div style='display:none;' class='raw-code'><pre>&gt; ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:7000/messaging/my_namespace messaging-stream-1,messaging-stream-2,messaging-stream-3,messaging-stream-4,messaging-stream-5</pre>
 </div></div>
 </div>
-<div class="section" id="step-6-write-some-records">
-<h2>Step 6: Write some records<a class="headerlink" href="#step-6-write-some-records" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="step-7-write-some-records">
+<h2>Step 7: Write some records<a class="headerlink" href="#step-7-write-some-records" title="Permalink to this headline">¶</a></h2>
 <p>The distributedlog tutorial also has a multi-streams writer that will take input from a console and write it out
 as records to the distributedlog write proxy. Each line will be sent as a separate record.</p>
 <p>Run the writer and type a few lines into the console to send to the server.</p>
@@ -387,6 +389,7 @@ as records to the distributedlog write proxy. Each line will be sent as a separa
           </ul>
           <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -442,6 +445,7 @@ as records to the distributedlog write proxy. Each line will be sent as a separa
 <li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
@@ -501,7 +505,7 @@ as records to the distributedlog write proxy. Each line will be sent as a separa
 </div>
         </p>
         <p>
-          Built and hosted by <a href="//">DocBird</a>. 
+          Built and hosted by <a href="/">DocBird</a>. 
         </p>
       </div>
     </div>

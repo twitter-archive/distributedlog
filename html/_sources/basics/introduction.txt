@@ -31,7 +31,7 @@ Log Records
 
 Each **log record** is a sequence of bytes.
 **Log records** are written sequentially into a *log stream*, and will be assigned with
-an unique sequence number *called* **DLSN** (DistributedLog Sequence Number). Besides *DLSN*,
+a unique sequence number *called* **DLSN** (DistributedLog Sequence Number). Besides *DLSN*,
 applications could assign its own sequence number while constructing log records. The
 application defined sequence number is called **TransactionID** (*txid*). Either *DLSN*
 or *TransactionID* could be used for positioning readers to start reading from a specific
@@ -60,7 +60,7 @@ Namespaces
 The *log streams* belong to same organization are usually categorized and managed under
 a **namespace**. A DL **namespace** is basically for applications to locate where the
 *log streams* are. Applications could *create* and *delete* streams under a namespace,
-and also be able to *truncate* a stream to given sequence number (either *DLSN* *TransactionID*).
+and also be able to *truncate* a stream to given sequence number (either *DLSN* or *TransactionID*).
 
 Writers
 -------
@@ -74,7 +74,7 @@ in log segment store.
 
 The log writers are served and managed in a service tier called *Write Proxy*.
 The *Write Proxy* is used for accepting fan-in writes from large number
-of clients. More on **Fan-in and Fan-out** in a second.
+of clients. Details on **Fan-in and Fan-out** can be found further into this doc.
 
 Readers
 -------
@@ -93,7 +93,7 @@ from the positions stored in SSTables. Tracking reader positions could easily be
 in application level using various stores (e.g. ZooKeeper, FileSystem, or Key/Value Stores).
 
 The log records could be cached in a service tier called *Read Proxy*, to serve
-large number of readers. More on **Fan-in and Fan-out** in a second.
+large number of readers. Details on **Fan-in and Fan-out** can be found further into this doc.
 
 Fan-in and Fan-out
 ------------------

@@ -10,3 +10,4 @@ Deployment & Administration
    hardware
    monitoring
    zookeeper
+   bookkeeper

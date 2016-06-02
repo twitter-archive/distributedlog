@@ -106,6 +106,7 @@
       <div class="db-toc" role="complementary">
         <ul>
 <li class="toctree-l1"><a class="reference internal" href="download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -161,6 +162,7 @@
 <li class="toctree-l2"><a class="reference internal" href="operations/hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="operations/monitoring.html">Monitoring</a></li>
 <li class="toctree-l2"><a class="reference internal" href="operations/zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations/bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="performance/main.html">Performance</a></li>
@@ -264,7 +266,7 @@ $(function(){
         <h3 style="margin-top: 0">
 <!--        <a href="//techdocs/checklist.html" class="label label-success">-->
         <a href="/report/distributedlog" class="">
-          7.5 / 10
+          9.0 / 10
           <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
         </a>
         
@@ -281,15 +283,16 @@ $(function(){
     <div class="col-xs-12 col-sm-8 col-md-8 col-lg-8">
       <div class="db-content-body">
         
-  <div class="section" id="overview">
+  <p><a class="reference external" href="https://travis-ci.org/twitter/distributedlog"><img alt="Build Status" src="https://travis-ci.org/twitter/distributedlog.svg?branch=master" /></a></p>
+<div class="section" id="overview">
 <h1>Overview<a class="headerlink" href="#overview" title="Permalink to this headline">¶</a></h1>
 <p>DistributedLog (DL) is a high-performance, replicated log service,
 offering durability, replication and strong consistency as essentials
 for building reliable distributed systems.</p>
 <div class="section" id="high-performance">
 <h2>High Performance<a class="headerlink" href="#high-performance" title="Permalink to this headline">¶</a></h2>
-<p>DL is able to provide milliseconds latency on durable writes with large
-number of concurrent logs. Also also handle high volume reads and writes
+<p>DL is able to provide milliseconds latency on durable writes with a
+large number of concurrent logs, and handle high volume reads and writes
 per second from thousands of clients.</p>
 </div>
 <div class="section" id="durable-and-consistent">
@@ -300,35 +303,86 @@ and readers in terms of strict ordering.</p>
 </div>
 <div class="section" id="efficient-fan-in-and-fan-out">
 <h2>Efficient Fan-in and Fan-out<a class="headerlink" href="#efficient-fan-in-and-fan-out" title="Permalink to this headline">¶</a></h2>
-<p>DL provides an efficient serving layer that optimized for running in a
-multi-tenant datacenter environment such as Mesos or Yarn. The serving
-layer is able to support large scale writes fan-in and reads fan-out.</p>
+<p>DL provides an efficient service layer that is optimized for running in
+a multi- tenant datacenter environment such as Mesos or Yarn. The
+service layer is able to support large scale writes (fan-in) and reads
+(fan-out).</p>
 </div>
 <div class="section" id="various-workloads">
 <h2>Various Workloads<a class="headerlink" href="#various-workloads" title="Permalink to this headline">¶</a></h2>
-<p>DL supports various workloads from latency sensitive online transaction
+<p>DL supports various workloads from latency-sensitive online transaction
 processing (OLTP) applications (e.g. WAL for distributed database and
 in-memory replicated state machines), real-time stream ingestion and
-computing to analytical processing.</p>
+computing, to analytical processing.</p>
 </div>
 <div class="section" id="multi-tenant">
 <h2>Multi Tenant<a class="headerlink" href="#multi-tenant" title="Permalink to this headline">¶</a></h2>
-<p>DL is designed for I/O isolation in real-world workloads, to support
-large scale of number of logs for multi tenants.</p>
+<p>To support a large number of logs for multi-tenants, DL is designed for
+I/O isolation in real-world workloads.</p>
 </div>
 <div class="section" id="layered-architecture">
 <h2>Layered Architecture<a class="headerlink" href="#layered-architecture" title="Permalink to this headline">¶</a></h2>
-<p>DL has a modern layered-architecture design, that separates stateless
-serving tier from stateful storage tier. It allows scaling storage
-independent of scaling cpu and memory, to support large scale writes
-fan-in and reads fan-out.</p>
+<p>DL has a modern layered architecture design, which separates the
+stateless service tier from the stateful storage tier. To support large
+scale writes (fan- in) and reads (fan-out), DL allows scaling storage
+independent of scaling CPU and memory.</p>
 </div>
+</div>
+<div class="section" id="documentation-and-getting-started">
+<h1>Documentation and Getting Started<a class="headerlink" href="#documentation-and-getting-started" title="Permalink to this headline">¶</a></h1>
+<ul class="simple">
+<li><a class="reference external" href="http://twitter.github.io/distributedlog/html/basics/quickstart.html">**Getting
+Started**</a></li>
+<li><a class="reference external" href="http://twitter.github.io/distributedlog/html/api/main.html">**API
+References**</a></li>
+<li><a class="reference external" href="http://twitter.github.io/distributedlog/html/tutorials/main.html">**Tutorials**</a></li>
+</ul>
+</div>
+<div class="section" id="getting-involved">
+<h1>Getting involved<a class="headerlink" href="#getting-involved" title="Permalink to this headline">¶</a></h1>
+<ul class="simple">
+<li>Website: <a class="reference external" href="https://twitter.github.io/distributedlog/html/">https://twitter.github.io/distributedlog/html/</a></li>
+<li>Source: <a class="reference external" href="https://github.com/twitter/distributedlog">https://github.com/twitter/distributedlog</a></li>
+<li>Maiing List:
+<a class="reference external" href="https://groups.google.com/forum/#!forum/distributedlog-user">distributedlog-user&#64;googlegroups.com</a></li>
+<li>Issue Tracker: <a class="reference external" href="https://github.com/twitter/distributedlog/issues">https://github.com/twitter/distributedlog/issues</a></li>
+</ul>
+<p>We feel that a welcoming community is important and we ask that you
+follow Twitter's <a class="reference external" href="https://engineering.twitter.com/opensource/code-of-conduct">Open Source Code of
+Conduct</a>
+in all interactions with the community.</p>
+</div>
+<div class="section" id="authors">
+<h1>Authors<a class="headerlink" href="#authors" title="Permalink to this headline">¶</a></h1>
+<ul class="simple">
+<li>Robin Dhamankar
+(<a class="reference external" href="https://twitter.com/RobinDhamankar">&#64;RobinDhamankar</a>)</li>
+<li>Sijie Guo (<a class="reference external" href="https://twitter.com/sijieg">&#64;sijieg</a>)</li>
+<li>Leigh Stewart (<a class="reference external" href="https://twitter.com/l4stewar">&#64;l4stewar</a>)</li>
+</ul>
+<p>Thanks for assistance and contributions:</p>
+<ul class="simple">
+<li>Aniruddha Laud (<a class="reference external" href="https://twitter.com/i0exception">&#64;i0exception</a>)</li>
+<li>Franck Cuny (<a class="reference external" href="https://twitter.com/franckcuny">&#64;franckcuny</a>)</li>
+<li>Dave Rusek (<a class="reference external" href="https://twitter.com/davidjrusek">&#64;davidjrusek</a>)</li>
+<li>Jordan Bull (<a class="reference external" href="https://twitter.com/jordangbull">&#64;jordangbull</a>)</li>
+</ul>
+<p>A full list of
+<a class="reference external" href="https://github.com/twitter/distributedlog/graphs/contributors">contributors</a>
+can be found on GitHub.</p>
+</div>
+<div class="section" id="license">
+<h1>License<a class="headerlink" href="#license" title="Permalink to this headline">¶</a></h1>
+<p>Copyright 2016 Twitter, Inc.</p>
+<p>Licensed under the Apache License, Version 2.0:
+<a class="reference external" href="http://www.apache.org/licenses/LICENSE-2.0">http://www.apache.org/licenses/LICENSE-2.0</a></p>
 </div>
 <div class="section" id="documentation">
 <h1>Documentation<a class="headerlink" href="#documentation" title="Permalink to this headline">¶</a></h1>
 <div class="toctree-wrapper compound">
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -384,6 +438,7 @@ fan-in and reads fan-out.</p>
 <li class="toctree-l2"><a class="reference internal" href="operations/hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="operations/monitoring.html">Monitoring</a></li>
 <li class="toctree-l2"><a class="reference internal" href="operations/zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations/bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="performance/main.html">Performance</a></li>
@@ -420,6 +475,7 @@ fan-in and reads fan-out.</p>
           </ul>
           <ul>
 <li class="toctree-l1"><a class="reference internal" href="download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -475,6 +531,7 @@ fan-in and reads fan-out.</p>
 <li class="toctree-l2"><a class="reference internal" href="operations/hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="operations/monitoring.html">Monitoring</a></li>
 <li class="toctree-l2"><a class="reference internal" href="operations/zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="operations/bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="performance/main.html">Performance</a></li>

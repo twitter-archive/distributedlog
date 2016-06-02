@@ -108,6 +108,7 @@
       <div class="db-toc" role="complementary">
         <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -163,6 +164,7 @@
 <li class="toctree-l2"><a class="reference internal" href="hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html">Monitoring</a></li>
 <li class="toctree-l2"><a class="reference internal" href="zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
@@ -264,9 +266,9 @@ $(function(){
       <span class="db-project-link-label">HEALTH</span>
         
         <h3 style="margin-top: 0">
-<!--        <a href="//techdocs/checklist.html" class="label label-success">-->
+<!--        <a href="/techdocs/checklist.html" class="label label-success">-->
         <a href="/report/distributedlog" class="">
-          7.5 / 10
+          9.0 / 10
           <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
         </a>
         
@@ -285,23 +287,577 @@ $(function(){
         
   <div class="section" id="cluster-setup-deployment">
 <h1>Cluster Setup &amp; Deployment<a class="headerlink" href="#cluster-setup-deployment" title="Permalink to this headline">¶</a></h1>
-<p>To run a cluster with DistributedLog, you need a Zookeeper cluster and a Bookkeeper cluster.</p>
+<p>This section describes how to run DistributedLog in <cite>distributed</cite> mode.
+To run a cluster with DistributedLog, you need a Zookeeper cluster and a Bookkeeper cluster.</p>
 <div class="section" id="build">
 <h2>Build<a class="headerlink" href="#build" title="Permalink to this headline">¶</a></h2>
 <p>To build DistributedLog, run:</p>
-<div class="highlight-bash"><div class="highlight"><pre><span></span>mvn package
+<div class="highlight-bash"><div class="highlight"><pre><span></span>mvn clean install -DskipTests
 </pre></div>
-<div style='display:none;' class='raw-code'><pre>mvn package</pre>
+<div style='display:none;' class='raw-code'><pre>mvn clean install -DskipTests</pre>
 </div></div>
-<p>This will generate a zip file in <tt class="docutils literal"><span class="pre">distributedlog-service/target</span></tt>. This zip file contains the main JAR to run DistributedLog, and all the dependencies.</p>
+<p>Or run <cite>./scripts/snapshot</cite> to build the release packages from current source. The released
+packages contain the binaries for running <cite>distributedlog-service</cite>, <cite>distributedlog-benchmark</cite>
+and <cite>distributedlog-tutorials</cite>.</p>
+<p>NOTE: we run following instructions from distributedlog source code after running <cite>mvn clean install</cite>.
+And assume <cite>DLOG_HOME</cite> is the directory of distributedlog source.</p>
 </div>
 <div class="section" id="zookeeper">
 <h2>Zookeeper<a class="headerlink" href="#zookeeper" title="Permalink to this headline">¶</a></h2>
-<p>Please refer to the <tt class="xref doc docutils literal"><span class="pre">/zookeeper</span></tt> configuration.</p>
+<p>(If you already have a zookeeper cluster running, you could skip this section.)</p>
+<p>We could use the <cite>dlog-daemon.sh</cite> and the <cite>zookeeper.conf.template</cite> to demonstrate run a 1-node
+zookeeper ensemble locally.</p>
+<p>Create a <cite>zookeeper.conf</cite> from the <cite>zookeeper.conf.template</cite>.</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ cp distributedlog-service/conf/zookeeper.conf.template distributedlog-service/conf/zookeeper.conf
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ cp distributedlog-service/conf/zookeeper.conf.template distributedlog-service/conf/zookeeper.conf</pre>
+</div></div>
+<p>Configure the settings in <cite>zookeeper.conf</cite>. By default, it will use <cite>/tmp/data/zookeeper</cite> for storing
+the zookeeper data. Let's create the data directories for zookeeper.</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ mkdir -p /tmp/data/zookeeper/txlog
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ mkdir -p /tmp/data/zookeeper/txlog</pre>
+</div></div>
+<p>Once the data directory is created, we need to assign <cite>myid</cite> for this zookeeper node.</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ <span class="nb">echo</span> <span class="s2">&quot;1&quot;</span> &gt; /tmp/data/zookeeper/myid
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ echo "1" &gt; /tmp/data/zookeeper/myid</pre>
+</div></div>
+<p>Start the zookeeper daemon using <cite>dlog-daemon.sh</cite>.</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ ./distributedlog-service/bin/dlog-daemon.sh start zookeeper <span class="si">${</span><span class="nv">DL_HOME</span><span class="si">}</span>/distributedlog-service/conf/zookeeper.conf
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-service/bin/dlog-daemon.sh start zookeeper ${DL_HOME}/distributedlog-service/conf/zookeeper.conf</pre>
+</div></div>
+<p>You could verify the zookeeper setup using <cite>zkshell</cite>.</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>// ./distributedlog-service/bin/dlog zkshell <span class="si">${</span><span class="nv">zkservers</span><span class="si">}</span>
+$ ./distributedlog-service/bin/dlog zkshell localhost:2181
+Connecting to localhost:2181
+Welcome to ZooKeeper!
+JLine support is enabled
+
+WATCHER::
+
+WatchedEvent state:SyncConnected type:None path:null
+<span class="o">[</span>zk: localhost:2181<span class="o">(</span>CONNECTED<span class="o">)</span> 0<span class="o">]</span> ls /
+<span class="o">[</span>zookeeper<span class="o">]</span>
+<span class="o">[</span>zk: localhost:2181<span class="o">(</span>CONNECTED<span class="o">)</span> 1<span class="o">]</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>// ./distributedlog-service/bin/dlog zkshell ${zkservers}
+$ ./distributedlog-service/bin/dlog zkshell localhost:2181
+Connecting to localhost:2181
+Welcome to ZooKeeper!
+JLine support is enabled
+
+WATCHER::
+
+WatchedEvent state:SyncConnected type:None path:null
+[zk: localhost:2181(CONNECTED) 0] ls /
+[zookeeper]
+[zk: localhost:2181(CONNECTED) 1]</pre>
+</div></div>
+<p>Please refer to the <a class="reference internal" href="zookeeper.html"><em>ZooKeeper</em></a> for more details on setting up zookeeper cluster.</p>
 </div>
 <div class="section" id="bookkeeper">
 <h2>Bookkeeper<a class="headerlink" href="#bookkeeper" title="Permalink to this headline">¶</a></h2>
-<p>There is no minimal instances needed to run a Bookkeeper cluster.</p>
+<p>(If you already have a bookkeeper cluster running, you could skip this section.)</p>
+<p>We could use the <cite>dlog-daemon.sh</cite> and the <cite>bookie.conf.template</cite> to demonstrate run a 3-nodes
+bookkeeper cluster locally.</p>
+<p>Create a <cite>bookie.conf</cite> from the <cite>bookie.conf.template</cite>. Since we are going to run a 3-nodes
+bookkeeper cluster locally. Let's make three copies of <cite>bookie.conf.template</cite>.</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>$ cp distributedlog-service/conf/bookie.conf.template distributedlog-service/conf/bookie-1.conf
+$ cp distributedlog-service/conf/bookie.conf.template distributedlog-service/conf/bookie-2.conf
+$ cp distributedlog-service/conf/bookie.conf.template distributedlog-service/conf/bookie-3.conf
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>$ cp distributedlog-service/conf/bookie.conf.template distributedlog-service/conf/bookie-1.conf
+$ cp distributedlog-service/conf/bookie.conf.template distributedlog-service/conf/bookie-2.conf
+$ cp distributedlog-service/conf/bookie.conf.template distributedlog-service/conf/bookie-3.conf</pre>
+</div></div>
+<p>Configure the settings in the bookie configuraiont files.</p>
+<p>First of all, choose the zookeeper cluster that the bookies will use and set <cite>zkServers</cite> in
+the configuration files.</p>
+<div class="highlight-python"><pre>zkServers=localhost:2181</pre>
+<div style='display:none;' class='raw-code'><pre>zkServers=localhost:2181</pre>
+</div></div>
+<p>Choose the zookeeper path to store bookkeeper metadata and set <cite>zkLedgersRootPath</cite> in the configuration
+files. Let's use <cite>/messaging/bookkeeper/ledgers</cite> in this instruction.</p>
+<div class="highlight-python"><pre>zkLedgersRootPath=/messaging/bookkeeper/ledgers</pre>
+<div style='display:none;' class='raw-code'><pre>zkLedgersRootPath=/messaging/bookkeeper/ledgers</pre>
+</div></div>
+<div class="section" id="format-bookkeeper-metadata">
+<h3>Format bookkeeper metadata<a class="headerlink" href="#format-bookkeeper-metadata" title="Permalink to this headline">¶</a></h3>
+<p>(NOTE: only format bookkeeper metadata when first time setting up the bookkeeper cluster.)</p>
+<p>The bookkeeper shell doesn't automatically create the <cite>zkLedgersRootPath</cite> when running <cite>metaformat</cite>.
+So using <cite>zkshell</cite> to create the <cite>zkLedgersRootPath</cite>.</p>
+<div class="highlight-python"><pre>$ ./distributedlog-service/bin/dlog zkshell localhost:2181
+Connecting to localhost:2181
+Welcome to ZooKeeper!
+JLine support is enabled
+
+WATCHER::
+
+WatchedEvent state:SyncConnected type:None path:null
+[zk: localhost:2181(CONNECTED) 0] create /messaging ''
+Created /messaging
+[zk: localhost:2181(CONNECTED) 1] create /messaging/bookkeeper ''
+Created /messaging/bookkeeper
+[zk: localhost:2181(CONNECTED) 2] create /messaging/bookkeeper/ledgers ''
+Created /messaging/bookkeeper/ledgers
+[zk: localhost:2181(CONNECTED) 3]</pre>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-service/bin/dlog zkshell localhost:2181
+Connecting to localhost:2181
+Welcome to ZooKeeper!
+JLine support is enabled
+
+WATCHER::
+
+WatchedEvent state:SyncConnected type:None path:null
+[zk: localhost:2181(CONNECTED) 0] create /messaging ''
+Created /messaging
+[zk: localhost:2181(CONNECTED) 1] create /messaging/bookkeeper ''
+Created /messaging/bookkeeper
+[zk: localhost:2181(CONNECTED) 2] create /messaging/bookkeeper/ledgers ''
+Created /messaging/bookkeeper/ledgers
+[zk: localhost:2181(CONNECTED) 3]</pre>
+</div></div>
+<p>If the <cite>zkLedgersRootPath</cite>, run <cite>metaformat</cite> to format the bookkeeper metadata.</p>
+<div class="highlight-python"><pre>$ BOOKIE_CONF=${DL_HOME}/distributedlog-service/conf/bookie-1.conf ./distributedlog-service/bin/dlog bkshell metaformat
+Are you sure to format bookkeeper metadata ? (Y or N) Y</pre>
+<div style='display:none;' class='raw-code'><pre>$ BOOKIE_CONF=${DL_HOME}/distributedlog-service/conf/bookie-1.conf ./distributedlog-service/bin/dlog bkshell metaformat
+Are you sure to format bookkeeper metadata ? (Y or N) Y</pre>
+</div></div>
+</div>
+<div class="section" id="add-bookies">
+<h3>Add Bookies<a class="headerlink" href="#add-bookies" title="Permalink to this headline">¶</a></h3>
+<p>Once the bookkeeper metadata is formatted, it is ready to add bookie nodes to the cluster.</p>
+<div class="section" id="configure-ports">
+<h4>Configure Ports<a class="headerlink" href="#configure-ports" title="Permalink to this headline">¶</a></h4>
+<p>Configure the ports that used by bookies.</p>
+<p>bookie-1:</p>
+<div class="highlight-python"><pre># Port that bookie server listen on
+bookiePort=3181
+# Exporting codahale stats
+185 codahaleStatsHttpPort=9001</pre>
+<div style='display:none;' class='raw-code'><pre># Port that bookie server listen on
+bookiePort=3181
+# Exporting codahale stats
+185 codahaleStatsHttpPort=9001</pre>
+</div></div>
+<p>bookie-2:</p>
+<div class="highlight-python"><pre># Port that bookie server listen on
+bookiePort=3182
+# Exporting codahale stats
+185 codahaleStatsHttpPort=9002</pre>
+<div style='display:none;' class='raw-code'><pre># Port that bookie server listen on
+bookiePort=3182
+# Exporting codahale stats
+185 codahaleStatsHttpPort=9002</pre>
+</div></div>
+<p>bookie-3:</p>
+<div class="highlight-python"><pre># Port that bookie server listen on
+bookiePort=3183
+# Exporting codahale stats
+185 codahaleStatsHttpPort=9003</pre>
+<div style='display:none;' class='raw-code'><pre># Port that bookie server listen on
+bookiePort=3183
+# Exporting codahale stats
+185 codahaleStatsHttpPort=9003</pre>
+</div></div>
+</div>
+<div class="section" id="configure-disk-layout">
+<h4>Configure Disk Layout<a class="headerlink" href="#configure-disk-layout" title="Permalink to this headline">¶</a></h4>
+<p>Configure the disk directories used by a bookie server by setting following options.</p>
+<div class="highlight-python"><pre># Directory Bookkeeper outputs its write ahead log
+journalDirectory=/tmp/data/bk/journal
+# Directory Bookkeeper outputs ledger snapshots
+ledgerDirectories=/tmp/data/bk/ledgers
+# Directory in which index files will be stored.
+indexDirectories=/tmp/data/bk/ledgers</pre>
+<div style='display:none;' class='raw-code'><pre># Directory Bookkeeper outputs its write ahead log
+journalDirectory=/tmp/data/bk/journal
+# Directory Bookkeeper outputs ledger snapshots
+ledgerDirectories=/tmp/data/bk/ledgers
+# Directory in which index files will be stored.
+indexDirectories=/tmp/data/bk/ledgers</pre>
+</div></div>
+<p>As we are configuring a 3-nodes bookkeeper cluster, we modify the following settings as below:</p>
+<p>bookie-1:</p>
+<div class="highlight-python"><pre># Directory Bookkeeper outputs its write ahead log
+journalDirectory=/tmp/data/bk-1/journal
+# Directory Bookkeeper outputs ledger snapshots
+ledgerDirectories=/tmp/data/bk-1/ledgers
+# Directory in which index files will be stored.
+indexDirectories=/tmp/data/bk-1/ledgers</pre>
+<div style='display:none;' class='raw-code'><pre># Directory Bookkeeper outputs its write ahead log
+journalDirectory=/tmp/data/bk-1/journal
+# Directory Bookkeeper outputs ledger snapshots
+ledgerDirectories=/tmp/data/bk-1/ledgers
+# Directory in which index files will be stored.
+indexDirectories=/tmp/data/bk-1/ledgers</pre>
+</div></div>
+<p>bookie-2:</p>
+<div class="highlight-python"><pre># Directory Bookkeeper outputs its write ahead log
+journalDirectory=/tmp/data/bk-2/journal
+# Directory Bookkeeper outputs ledger snapshots
+ledgerDirectories=/tmp/data/bk-2/ledgers
+# Directory in which index files will be stored.
+indexDirectories=/tmp/data/bk-2/ledgers</pre>
+<div style='display:none;' class='raw-code'><pre># Directory Bookkeeper outputs its write ahead log
+journalDirectory=/tmp/data/bk-2/journal
+# Directory Bookkeeper outputs ledger snapshots
+ledgerDirectories=/tmp/data/bk-2/ledgers
+# Directory in which index files will be stored.
+indexDirectories=/tmp/data/bk-2/ledgers</pre>
+</div></div>
+<p>bookie-3:</p>
+<div class="highlight-python"><pre># Directory Bookkeeper outputs its write ahead log
+journalDirectory=/tmp/data/bk-3/journal
+# Directory Bookkeeper outputs ledger snapshots
+ledgerDirectories=/tmp/data/bk-3/ledgers
+# Directory in which index files will be stored.
+indexDirectories=/tmp/data/bk-3/ledgers</pre>
+<div style='display:none;' class='raw-code'><pre># Directory Bookkeeper outputs its write ahead log
+journalDirectory=/tmp/data/bk-3/journal
+# Directory Bookkeeper outputs ledger snapshots
+ledgerDirectories=/tmp/data/bk-3/ledgers
+# Directory in which index files will be stored.
+indexDirectories=/tmp/data/bk-3/ledgers</pre>
+</div></div>
+</div>
+<div class="section" id="format-bookie">
+<h4>Format bookie<a class="headerlink" href="#format-bookie" title="Permalink to this headline">¶</a></h4>
+<p>Once the disk directories are configured correctly in the configuration file, use
+<cite>bkshell bookieformat</cite> to format the bookie.</p>
+<div class="highlight-python"><pre>BOOKIE_CONF=${DL_HOME}/distributedlog-service/conf/bookie-1.conf ./distributedlog-service/bin/dlog bkshell bookieformat
+BOOKIE_CONF=${DL_HOME}/distributedlog-service/conf/bookie-2.conf ./distributedlog-service/bin/dlog bkshell bookieformat
+BOOKIE_CONF=${DL_HOME}/distributedlog-service/conf/bookie-3.conf ./distributedlog-service/bin/dlog bkshell bookieformat</pre>
+<div style='display:none;' class='raw-code'><pre>BOOKIE_CONF=${DL_HOME}/distributedlog-service/conf/bookie-1.conf ./distributedlog-service/bin/dlog bkshell bookieformat
+BOOKIE_CONF=${DL_HOME}/distributedlog-service/conf/bookie-2.conf ./distributedlog-service/bin/dlog bkshell bookieformat
+BOOKIE_CONF=${DL_HOME}/distributedlog-service/conf/bookie-3.conf ./distributedlog-service/bin/dlog bkshell bookieformat</pre>
+</div></div>
+</div>
+<div class="section" id="start-bookie">
+<h4>Start bookie<a class="headerlink" href="#start-bookie" title="Permalink to this headline">¶</a></h4>
+<p>Start the bookie using <cite>dlog-daemon.sh</cite>.</p>
+<div class="highlight-python"><pre>SERVICE_PORT=3181 ./distributedlog-service/bin/dlog-daemon.sh start bookie --conf ${DL_HOME}/distributedlog-service/conf/bookie-1.conf
+SERVICE_PORT=3182 ./distributedlog-service/bin/dlog-daemon.sh start bookie --conf ${DL_HOME}/distributedlog-service/conf/bookie-2.conf
+SERVICE_PORT=3183 ./distributedlog-service/bin/dlog-daemon.sh start bookie --conf ${DL_HOME}/distributedlog-service/conf/bookie-3.conf</pre>
+<div style='display:none;' class='raw-code'><pre>SERVICE_PORT=3181 ./distributedlog-service/bin/dlog-daemon.sh start bookie --conf ${DL_HOME}/distributedlog-service/conf/bookie-1.conf
+SERVICE_PORT=3182 ./distributedlog-service/bin/dlog-daemon.sh start bookie --conf ${DL_HOME}/distributedlog-service/conf/bookie-2.conf
+SERVICE_PORT=3183 ./distributedlog-service/bin/dlog-daemon.sh start bookie --conf ${DL_HOME}/distributedlog-service/conf/bookie-3.conf</pre>
+</div></div>
+<p>Verify whether the bookie is setup correctly. You could simply check whether the bookie is showed up in
+zookeeper <cite>zkLedgersRootPath</cite>/available znode.</p>
+<div class="highlight-python"><pre>$ ./distributedlog-service/bin/dlog zkshell localhost:2181
+Connecting to localhost:2181
+Welcome to ZooKeeper!
+JLine support is enabled
+
+WATCHER::
+
+WatchedEvent state:SyncConnected type:None path:null
+[zk: localhost:2181(CONNECTED) 0] ls /messaging/bookkeeper/ledgers/available
+[127.0.0.1:3181, 127.0.0.1:3182, 127.0.0.1:3183, readonly]
+[zk: localhost:2181(CONNECTED) 1]</pre>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-service/bin/dlog zkshell localhost:2181
+Connecting to localhost:2181
+Welcome to ZooKeeper!
+JLine support is enabled
+
+WATCHER::
+
+WatchedEvent state:SyncConnected type:None path:null
+[zk: localhost:2181(CONNECTED) 0] ls /messaging/bookkeeper/ledgers/available
+[127.0.0.1:3181, 127.0.0.1:3182, 127.0.0.1:3183, readonly]
+[zk: localhost:2181(CONNECTED) 1]</pre>
+</div></div>
+<p>Or check if the bookie is exposing the stats at port <cite>codahaleStatsHttpPort</cite>.</p>
+<div class="highlight-python"><pre>// ping the service
+$ curl localhost:9001/ping
+pong
+// checking the stats
+curl localhost:9001/metrics?pretty=true</pre>
+<div style='display:none;' class='raw-code'><pre>// ping the service
+$ curl localhost:9001/ping
+pong
+// checking the stats
+curl localhost:9001/metrics?pretty=true</pre>
+</div></div>
+</div>
+<div class="section" id="stop-bookie">
+<h4>Stop bookie<a class="headerlink" href="#stop-bookie" title="Permalink to this headline">¶</a></h4>
+<p>Stop the bookie using <cite>dlog-daemon.sh</cite>.</p>
+<div class="highlight-python"><pre>$ ./distributedlog-service/bin/dlog-daemon.sh stop bookie
+// Example:
+$ SERVICE_PORT=3181 ./distributedlog-service/bin/dlog-daemon.sh stop bookie
+doing stop bookie ...
+stopping bookie
+Shutdown is in progress... Please wait...
+Shutdown completed.</pre>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-service/bin/dlog-daemon.sh stop bookie
+// Example:
+$ SERVICE_PORT=3181 ./distributedlog-service/bin/dlog-daemon.sh stop bookie
+doing stop bookie ...
+stopping bookie
+Shutdown is in progress... Please wait...
+Shutdown completed.</pre>
+</div></div>
+</div>
+<div class="section" id="turn-bookie-to-readonly">
+<h4>Turn bookie to readonly<a class="headerlink" href="#turn-bookie-to-readonly" title="Permalink to this headline">¶</a></h4>
+<p>Start the bookie in <cite>readonly</cite> mode.</p>
+<div class="highlight-python"><pre>$ SERVICE_PORT=3181 ./distributedlog-service/bin/dlog-daemon.sh start bookie --conf ${DL_HOME}/distributedlog-service/conf/bookie-1.conf --readonly</pre>
+<div style='display:none;' class='raw-code'><pre>$ SERVICE_PORT=3181 ./distributedlog-service/bin/dlog-daemon.sh start bookie --conf ${DL_HOME}/distributedlog-service/conf/bookie-1.conf --readonly</pre>
+</div></div>
+<p>Verify if the bookie is running in <cite>readonly</cite> mode.</p>
+<div class="highlight-python"><pre>$ ./distributedlog-service/bin/dlog zkshell localhost:2181
+Connecting to localhost:2181
+Welcome to ZooKeeper!
+JLine support is enabled
+
+WATCHER::
+
+WatchedEvent state:SyncConnected type:None path:null
+[zk: localhost:2181(CONNECTED) 0] ls /messaging/bookkeeper/ledgers/available
+[127.0.0.1:3182, 127.0.0.1:3183, readonly]
+[zk: localhost:2181(CONNECTED) 1] ls /messaging/bookkeeper/ledgers/available/readonly
+[127.0.0.1:3181]
+[zk: localhost:2181(CONNECTED) 2]</pre>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-service/bin/dlog zkshell localhost:2181
+Connecting to localhost:2181
+Welcome to ZooKeeper!
+JLine support is enabled
+
+WATCHER::
+
+WatchedEvent state:SyncConnected type:None path:null
+[zk: localhost:2181(CONNECTED) 0] ls /messaging/bookkeeper/ledgers/available
+[127.0.0.1:3182, 127.0.0.1:3183, readonly]
+[zk: localhost:2181(CONNECTED) 1] ls /messaging/bookkeeper/ledgers/available/readonly
+[127.0.0.1:3181]
+[zk: localhost:2181(CONNECTED) 2]</pre>
+</div></div>
+<p>Please refer to the <a class="reference internal" href="bookkeeper.html"><em>BookKeeper</em></a> for more details on setting up bookkeeper cluster.</p>
+</div>
+</div>
+</div>
+<div class="section" id="create-namespace">
+<h2>Create Namespace<a class="headerlink" href="#create-namespace" title="Permalink to this headline">¶</a></h2>
+<p>After setting up a zookeeper cluster and a bookkeeper cluster, you could provision DL namespaces
+for applications to use.</p>
+<p>Provisioning a DistributedLog namespace is accomplished via the <cite>bind</cite> command available in <cite>dlog tool</cite>.</p>
+<p>Namespace is bound by writing bookkeeper environment settings (e.g. the ledger path, bkLedgersZkPath,
+or the set of Zookeeper servers used by bookkeeper, bkZkServers) as metadata in the zookeeper path of
+the namespace DL URI. The DL library resolves the DL URI to determine which bookkeeper cluster it
+should read and write to.</p>
+<p>The namespace binding has following features:</p>
+<ul class="simple">
+<li><cite>Inheritance</cite>: suppose <cite>distributedlog://&lt;zkservers&gt;/messaging/distributedlog</cite> is bound to bookkeeper
+cluster <cite>X</cite>. All the streams created under <cite>distributedlog://&lt;zkservers&gt;/messaging/distributedlog</cite>,
+will write to bookkeeper cluster <cite>X</cite>.</li>
+<li><cite>Override</cite>: suppose <cite>distributedlog://&lt;zkservers&gt;/messaging/distributedlog</cite> is bound to bookkeeper
+cluster <cite>X</cite>. You want streams under <cite>distributedlog://&lt;zkservers&gt;/messaging/distributedlog/S</cite> write
+to bookkeeper cluster <cite>Y</cite>. You could just bind <cite>distributedlog://&lt;zkservers&gt;/messaging/distributedlog/S</cite>
+to bookkeeper cluster <cite>Y</cite>. The binding to <cite>distributedlog://&lt;zkservers&gt;/messaging/distributedlog/S</cite>
+only affects streams under <cite>distributedlog://&lt;zkservers&gt;/messaging/distributedlog/S</cite>.</li>
+</ul>
+<p>Create namespace binding using <cite>dlog tool</cite>. For example, we create a namespace
+<cite>distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace</cite> pointing to the
+bookkeeper cluster we just created above.</p>
+<div class="highlight-python"><pre>$ distributedlog-service/bin/dlog admin bind \\
+    -dlzr 127.0.0.1:2181 \\
+    -dlzw 127.0.0.1:2181 \\
+    -s 127.0.0.1:2181 \\
+    -bkzr 127.0.0.1:2181 \\
+    -l /messaging/bookkeeper/ledgers \\
+    -i false \\
+    -r true \\
+    -c \\
+    distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace
+
+No bookkeeper is bound to distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace
+Created binding on distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace.</pre>
+<div style='display:none;' class='raw-code'><pre>$ distributedlog-service/bin/dlog admin bind \\
+    -dlzr 127.0.0.1:2181 \\
+    -dlzw 127.0.0.1:2181 \\
+    -s 127.0.0.1:2181 \\
+    -bkzr 127.0.0.1:2181 \\
+    -l /messaging/bookkeeper/ledgers \\
+    -i false \\
+    -r true \\
+    -c \\
+    distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace
+
+No bookkeeper is bound to distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace
+Created binding on distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace.</pre>
+</div></div>
+<ul class="simple">
+<li>Configure the zookeeper cluster used for storing DistributedLog metadata: <cite>-dlzr</cite> and <cite>-dlzw</cite>.
+Ideally <cite>-dlzr</cite> and <cite>-dlzw</cite> would be same the zookeeper server in distributedlog namespace uri.
+However to scale zookeeper reads, the zookeeper observers sometimes are added in a different
+domain name than participants. In such case, configuring <cite>-dlzr</cite> and <cite>-dlzw</cite> to different
+zookeeper domain names would help isolating zookeeper write and read traffic.</li>
+<li>Configure the zookeeper cluster used by bookkeeper for storing the metadata : <cite>-bkzr</cite> and <cite>-s</cite>.
+Similar as <cite>-dlzr</cite> and <cite>-dlzw</cite>, you could configure the namespace to use different zookeeper
+domain names for readers and writers to access bookkeeper metadatadata.</li>
+<li>Configure the bookkeeper ledgers path: <cite>-l</cite>.</li>
+<li>Configure the zookeeper path to store DistributedLog metadata. It is implicitly included as part
+of namespace URI.</li>
+</ul>
+</div>
+<div class="section" id="write-proxy">
+<h2>Write Proxy<a class="headerlink" href="#write-proxy" title="Permalink to this headline">¶</a></h2>
+<p>A write proxy consists of multiple write proxies. They don't store any state locally. So they are
+mostly stateless and can be run as many as you can.</p>
+<div class="section" id="configuration">
+<h3>Configuration<a class="headerlink" href="#configuration" title="Permalink to this headline">¶</a></h3>
+<p>Different from bookkeeper, DistributedLog tries not to configure any environment related settings
+in configuration files. Any environment related settings are stored and configured via <cite>namespace binding</cite>.
+The configuration file should contain non-environment related settings.</p>
+<p>There is a <cite>write_proxy.conf</cite> template file available under <cite>distributedlog-service</cite> module.</p>
+</div>
+<div class="section" id="run-write-proxy">
+<h3>Run write proxy<a class="headerlink" href="#run-write-proxy" title="Permalink to this headline">¶</a></h3>
+<p>A write proxy could be started using <cite>dlog-daemon.sh</cite> script under <cite>distributedlog-service</cite>.</p>
+<div class="highlight-python"><pre>WP_SHARD_ID=${WP_SHARD_ID} WP_SERVICE_PORT=${WP_SERVICE_PORT} WP_STATS_PORT=${WP_STATS_PORT} ./distributedlog-service/bin/dlog-daemon.sh start writeproxy</pre>
+<div style='display:none;' class='raw-code'><pre>WP_SHARD_ID=${WP_SHARD_ID} WP_SERVICE_PORT=${WP_SERVICE_PORT} WP_STATS_PORT=${WP_STATS_PORT} ./distributedlog-service/bin/dlog-daemon.sh start writeproxy</pre>
+</div></div>
+<ul class="simple">
+<li><cite>WP_SHARD_ID</cite>: A non-negative integer. You don't need to guarantee uniqueness of shard id, as it is just an
+indicator to the client for routing the requests. If you are running the <cite>write proxy</cite> using a cluster scheduler
+like <cite>aurora</cite>, you could easily obtain a shard id and use that to configure <cite>WP_SHARD_ID</cite>.</li>
+<li><cite>WP_SERVICE_PORT</cite>: The port that write proxy listens on.</li>
+<li><cite>WP_STATS_PORT</cite>: The port that write proxy exposes stats to a http endpoint.</li>
+</ul>
+<p>Please check <cite>distributedlog-service/conf/dlogenv.sh</cite> for more environment variables on configuring write proxy.</p>
+<ul class="simple">
+<li><cite>WP_CONF_FILE</cite>: The path to the write proxy configuration file.</li>
+<li><cite>WP_NAMESPACE</cite>: The distributedlog namespace that the write proxy is serving for.</li>
+</ul>
+<p>For example, we start 3 write proxies locally and point to the namespace created above.</p>
+<div class="highlight-python"><pre>$ WP_SHARD_ID=1 WP_SERVICE_PORT=4181 WP_STATS_PORT=20001 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
+$ WP_SHARD_ID=2 WP_SERVICE_PORT=4182 WP_STATS_PORT=20002 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
+$ WP_SHARD_ID=3 WP_SERVICE_PORT=4183 WP_STATS_PORT=20003 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy</pre>
+<div style='display:none;' class='raw-code'><pre>$ WP_SHARD_ID=1 WP_SERVICE_PORT=4181 WP_STATS_PORT=20001 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
+$ WP_SHARD_ID=2 WP_SERVICE_PORT=4182 WP_STATS_PORT=20002 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
+$ WP_SHARD_ID=3 WP_SERVICE_PORT=4183 WP_STATS_PORT=20003 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy</pre>
+</div></div>
+<p>The write proxy will announce itself to the zookeeper path <cite>.write_proxy</cite> under the dl namespace path.</p>
+<p>We could verify that the write proxy is running correctly by checking the zookeeper path or checking its stats port.</p>
+<dl class="docutils">
+<dt>::</dt>
+<dd><p class="first">$ ./distributedlog-service/bin/dlog zkshell localhost:2181
+Connecting to localhost:2181
+Welcome to ZooKeeper!
+JLine support is enabled</p>
+<p>WATCHER:</p>
+<p class="last">WatchedEvent state:SyncConnected type:None path:null
+[zk: localhost:2181(CONNECTED) 0] ls /messaging/distributedlog/mynamespace/.write_proxy
+[member_0000000000, member_0000000001, member_0000000002]</p>
+</dd>
+</dl>
+<div class="highlight-python"><pre>$ curl localhost:20001/ping
+pong</pre>
+<div style='display:none;' class='raw-code'><pre>$ curl localhost:20001/ping
+pong</pre>
+</div></div>
+</div>
+<div class="section" id="add-and-remove-write-proxies">
+<h3>Add and Remove Write Proxies<a class="headerlink" href="#add-and-remove-write-proxies" title="Permalink to this headline">¶</a></h3>
+<p>Removing a write proxy is pretty straightforward by just killing the process.</p>
+<div class="highlight-python"><pre>WP_SHARD_ID=1 WP_SERVICE_PORT=4181 WP_STATS_PORT=10001 ./distributedlog-service/bin/dlog-daemon.sh stop writeproxy</pre>
+<div style='display:none;' class='raw-code'><pre>WP_SHARD_ID=1 WP_SERVICE_PORT=4181 WP_STATS_PORT=10001 ./distributedlog-service/bin/dlog-daemon.sh stop writeproxy</pre>
+</div></div>
+<p>Adding a new write proxy is just adding a new host and starting the write proxy
+process as described above.</p>
+</div>
+<div class="section" id="write-proxy-naming">
+<h3>Write Proxy Naming<a class="headerlink" href="#write-proxy-naming" title="Permalink to this headline">¶</a></h3>
+<p>The <cite>dlog-daemon.sh</cite> script starts the write proxy by announcing it to the <cite>.write_proxy</cite> path under
+the dl namespace. So you could use <cite>zk!&lt;zkservers&gt;!/&lt;namespace_path&gt;/.write_proxy</cite> as the finagle name
+to access the write proxy cluster. It is <cite>zk!127.0.0.1:2181!/messaging/distributedlog/mynamespace/.write_proxy</cite>
+in the above example.</p>
+</div>
+<div class="section" id="verify-the-setup">
+<h3>Verify the setup<a class="headerlink" href="#verify-the-setup" title="Permalink to this headline">¶</a></h3>
+<p>You could verify the write proxy cluster by running tutorials over the setup cluster.</p>
+<p>Create 10 streams.</p>
+<div class="highlight-python"><pre>$ ./distributedlog-service/bin/dlog tool create -u distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace -r stream- -e 0-10
+You are going to create streams : [stream-0, stream-1, stream-2, stream-3, stream-4, stream-5, stream-6, stream-7, stream-8, stream-9, stream-10] (Y or N) Y</pre>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-service/bin/dlog tool create -u distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace -r stream- -e 0-10
+You are going to create streams : [stream-0, stream-1, stream-2, stream-3, stream-4, stream-5, stream-6, stream-7, stream-8, stream-9, stream-10] (Y or N) Y</pre>
+</div></div>
+<p>Tail read from the 10 streams.</p>
+<div class="highlight-python"><pre>$ ./distributedlog-tutorials/distributedlog-basic/bin/runner run c.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace stream-0,stream-1,stream-2,stream-3,stream-4,stream-5,stream-6,stream-7,stream-8,stream-9,stream-10</pre>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-tutorials/distributedlog-basic/bin/runner run c.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace stream-0,stream-1,stream-2,stream-3,stream-4,stream-5,stream-6,stream-7,stream-8,stream-9,stream-10</pre>
+</div></div>
+<p>Run record generator over some streams</p>
+<div class="highlight-python"><pre>$ ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.RecordGenerator 'zk!127.0.0.1:2181!/messaging/distributedlog/mynamespace/.write_proxy' stream-0 100
+$ ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.RecordGenerator 'zk!127.0.0.1:2181!/messaging/distributedlog/mynamespace/.write_proxy' stream-1 100</pre>
+<div style='display:none;' class='raw-code'><pre>$ ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.RecordGenerator 'zk!127.0.0.1:2181!/messaging/distributedlog/mynamespace/.write_proxy' stream-0 100
+$ ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.RecordGenerator 'zk!127.0.0.1:2181!/messaging/distributedlog/mynamespace/.write_proxy' stream-1 100</pre>
+</div></div>
+<p>Check the terminal running <cite>MultiReader</cite>. You will see similar output as below:</p>
+<div class="highlight-python"><pre>"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=21044, slotId=0} from stream stream-0
+"""
+record-1464085079105
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=21046, slotId=0} from stream stream-0
+"""
+record-1464085079113
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=9636, slotId=0} from stream stream-1
+"""
+record-1464085079110
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=21048, slotId=0} from stream stream-0
+"""
+record-1464085079125
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=9638, slotId=0} from stream stream-1
+"""
+record-1464085079121
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=21050, slotId=0} from stream stream-0
+"""
+record-1464085079133
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=9640, slotId=0} from stream stream-1
+"""
+record-1464085079130
+"""</pre>
+<div style='display:none;' class='raw-code'><pre>"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=21044, slotId=0} from stream stream-0
+"""
+record-1464085079105
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=21046, slotId=0} from stream stream-0
+"""
+record-1464085079113
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=9636, slotId=0} from stream stream-1
+"""
+record-1464085079110
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=21048, slotId=0} from stream stream-0
+"""
+record-1464085079125
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=9638, slotId=0} from stream stream-1
+"""
+record-1464085079121
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=21050, slotId=0} from stream stream-0
+"""
+record-1464085079133
+"""
+Received record DLSN{logSegmentSequenceNo=1, entryId=9640, slotId=0} from stream stream-1
+"""
+record-1464085079130
+"""</pre>
+</div></div>
+<p>Please refer to the <a class="reference internal" href="performance.html"><em>Performance Tuning</em></a> for more details on tuning performance.</p>
+</div>
 </div>
 </div>
 
@@ -316,6 +872,7 @@ $(function(){
           </ul>
           <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
 </ul>
 </li>
@@ -371,6 +928,7 @@ $(function(){
 <li class="toctree-l2"><a class="reference internal" href="hardware.html">Hardware</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html">Monitoring</a></li>
 <li class="toctree-l2"><a class="reference internal" href="zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bookkeeper.html">BookKeeper</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
@@ -430,7 +988,7 @@ $(function(){
 </div>
         </p>
         <p>
-          Built and hosted by <a href="//">DocBird</a>. 
+          Built and hosted by <a href="/">DocBird</a>. 
         </p>
       </div>
     </div>
