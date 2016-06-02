@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Storage &mdash; DistributedLog 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/override.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap-theme.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/featherlight.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird-xs.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/jquery.rateyo.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/selection-sharer.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="../_static/bootstrap-3.1.0/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="../_static/js/bootstrap-docbird.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-1.11.0.min.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-fix.js"></script>
+    <script type="text/javascript" src="../_static/js/featherlight.min.js"></script>
+    <script type="text/javascript" src="../_static/js/ifvisible.js"></script>
+    <script type="text/javascript" src="../_static/js/timeme.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery.rateyo.min.js"></script>
+    <script type="text/javascript" src="../_static/js/js.cookie.js"></script>
+    <link rel="shortcut icon" href="../_static/docbird.ico"/>
+    <link rel="top" title="DistributedLog 1.0 documentation" href="../index.html" />
+    <link rel="up" title="Implementation" href="main.html" />
+    <link rel="next" title="&lt;no title&gt;" href="core.html" />
+    <link rel="prev" title="Implementation" href="main.html" />
+<meta charset='utf-8'>
+<meta http-equiv='X-UA-Compatible' content='IE=edge,chrome=1'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1'>
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<meta property="docbird:project" content="DistributedLog" />
+
+  </head>
+  <body>
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+  <div class="container-fluid">
+    <div class="row db-header">
+      <div class="col-sm-3 col-md-3 col-lg-3 hidden-xs db-header-controls">
+        <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      </div>
+      <div class="col-sm-7 col-md-7 col-lg-7 col-xs-12 db-header-info">
+        <div class="visible-xs">
+          <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        </div>
+        <div class="visible-xs db-xs-menu-button">
+          <div class="navbar-header">
+  <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#db-xs-menu">
+    <span class="sr-only">Toggle navigation</span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+  </button>
+</div>
+        </div>
+        <div class="db-header-projectname">
+          <h1><a href="../index.html">DistributedLog</a></h1>
+        </div>
+      </div>
+    </div>
+    <div class="row db-xs-menu hidden-sm hidden-md hidden-lg
+    collapse" id="db-xs-menu">
+      
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      <div class="db-toc" role="complementary">
+        <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/main.html">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../design/main.html">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="main.html">Implementation</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../operations/main.html">Deployment &amp; Administration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../operations/deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/bookkeeper.html">BookKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+      </div>
+    </div>
+  </div>
+</div>
+<div class="container">
+  <div class="row">
+    <div style="z-index: 1" class="col-xs-12 col-sm-12 col-md-12 col-lg-12">
+      <style>
+  .overflow-container {
+    display: none;
+  }
+  .overflow-toggle {
+    text-decoration: none;
+    border-bottom: none;
+    border-radius: 4px;
+    border: 1px solid #eee;
+    padding: 1px 3px 3px;
+    color: #888;
+    font-weight: normal;
+    background-color: linen;
+    line-height: 1.85em;
+    cursor: pointer;
+  }
+  .overflow-toggle:hover {
+    color: #333;
+    border-color: #ccc;
+    background-color: beige;
+  }
+</style>
+<script>
+$(function(){
+  $('.overflow-toggle').on('click', function(){
+    $(this).next().toggle();
+  });
+});
+</script>
+<div class="db-project-header-container">
+  <div class="row">
+    
+    <div class="db-project-info col-lg-12 col-md-12 col-sm-12 col-xs-12">
+      <h1>
+        <a href="../index.html">DistributedLog</a>
+        
+      </h1>
+        
+      <div class="db-code-link">
+        <a href="git@github.com:twitter/distributedlog.git/tree/master/" target="_blank">git@github.com:twitter/distributedlog.git/tree/master/</a>
+      </div>
+      
+      
+    </div>
+  </div>
+  
+  <div class="row db-project-links-row">
+    <div class=" col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">OWNERS</span>
+          
+            <em>None</em>
+          
+          
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">TAGS</span>
+        
+          <em><a class="db-hashtag" href="/?q=tags:%23uses_maven">#uses_maven</a></em>
+        
+        
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">HEALTH</span>
+        
+        <h3 style="margin-top: 0">
+<!--        <a href="/techdocs/checklist.html" class="label label-success">-->
+        <a href="/report/distributedlog" class="">
+          9.0 / 10
+          <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
+        </a>
+        
+      </h3>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">RATING</span>
+      <div id="rateYo"></div>
+    </div>
+  </div>
+  
+</div>
+    </div>
+    <div class="col-xs-12 col-sm-8 col-md-8 col-lg-8">
+      <div class="db-content-body">
+        
+  <div class="section" id="storage">
+<h1>Storage<a class="headerlink" href="#storage" title="Permalink to this headline">¶</a></h1>
+<p>This describes some implementation details of storage layer.</p>
+<div class="section" id="ensemble-placement-policy">
+<h2>Ensemble Placement Policy<a class="headerlink" href="#ensemble-placement-policy" title="Permalink to this headline">¶</a></h2>
+<p><cite>EnsemblePlacementPolicy</cite> encapsulates the algorithm that bookkeeper client uses to select a number of bookies from the
+cluster as an ensemble for storing data. The algorithm is typically based on the data input as well as the network
+topology properties.</p>
+<p>By default, BookKeeper offers a <cite>RackawareEnsemblePlacementPolicy</cite> for placing the data across racks within a
+datacenter, and a <cite>RegionAwareEnsemblePlacementPolicy</cite> for placing the data across multiple datacenters.</p>
+<div class="section" id="how-does-ensembleplacementpolicy-work">
+<h3>How does EnsemblePlacementPolicy work?<a class="headerlink" href="#how-does-ensembleplacementpolicy-work" title="Permalink to this headline">¶</a></h3>
+<p>The interface of <cite>EnsemblePlacementPolicy</cite> is described as below.</p>
+<div class="highlight-python"><pre>public interface EnsemblePlacementPolicy {
+
+    /**
+     * Initialize the policy.
+     *
+     * @param conf client configuration
+     * @param optionalDnsResolver dns resolver
+     * @param hashedWheelTimer timer
+     * @param featureProvider feature provider
+     * @param statsLogger stats logger
+     * @param alertStatsLogger stats logger for alerts
+     */
+    public EnsemblePlacementPolicy initialize(ClientConfiguration conf,
+                                              Optional&lt;DNSToSwitchMapping&gt; optionalDnsResolver,
+                                              HashedWheelTimer hashedWheelTimer,
+                                              FeatureProvider featureProvider,
+                                              StatsLogger statsLogger,
+                                              AlertStatsLogger alertStatsLogger);
+
+    /**
+     * Uninitialize the policy
+     */
+    public void uninitalize();
+
+    /**
+     * A consistent view of the cluster (what bookies are available as writable, what bookies are available as
+     * readonly) is updated when any changes happen in the cluster.
+     *
+     * @param writableBookies
+     *          All the bookies in the cluster available for write/read.
+     * @param readOnlyBookies
+     *          All the bookies in the cluster available for readonly.
+     * @return the dead bookies during this cluster change.
+     */
+    public Set&lt;BookieSocketAddress&gt; onClusterChanged(Set&lt;BookieSocketAddress&gt; writableBookies,
+                                                     Set&lt;BookieSocketAddress&gt; readOnlyBookies);
+
+    /**
+     * Choose &lt;i&gt;numBookies&lt;/i&gt; bookies for ensemble. If the count is more than the number of available
+     * nodes, {@link BKNotEnoughBookiesException} is thrown.
+     *
+     * @param ensembleSize
+     *          Ensemble Size
+     * @param writeQuorumSize
+     *          Write Quorum Size
+     * @param excludeBookies
+     *          Bookies that should not be considered as targets.
+     * @return list of bookies chosen as targets.
+     * @throws BKNotEnoughBookiesException if not enough bookies available.
+     */
+    public ArrayList&lt;BookieSocketAddress&gt; newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
+                                                      Set&lt;BookieSocketAddress&gt; excludeBookies) throws BKNotEnoughBookiesException;
+
+    /**
+     * Choose a new bookie to replace &lt;i&gt;bookieToReplace&lt;/i&gt;. If no bookie available in the cluster,
+     * {@link BKNotEnoughBookiesException} is thrown.
+     *
+     * @param bookieToReplace
+     *          bookie to replace
+     * @param excludeBookies
+     *          bookies that should not be considered as candidate.
+     * @return the bookie chosen as target.
+     * @throws BKNotEnoughBookiesException
+     */
+    public BookieSocketAddress replaceBookie(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
+                                             Collection&lt;BookieSocketAddress&gt; currentEnsemble, BookieSocketAddress bookieToReplace,
+                                             Set&lt;BookieSocketAddress&gt; excludeBookies) throws BKNotEnoughBookiesException;
+
+    /**
+     * Reorder the read sequence of a given write quorum &lt;i&gt;writeSet&lt;/i&gt;.
+     *
+     * @param ensemble
+     *          Ensemble to read entries.
+     * @param writeSet
+     *          Write quorum to read entries.
+     * @param bookieFailureHistory
+     *          Observed failures on the bookies
+     * @return read sequence of bookies
+     */
+    public List&lt;Integer&gt; reorderReadSequence(ArrayList&lt;BookieSocketAddress&gt; ensemble,
+                                             List&lt;Integer&gt; writeSet, Map&lt;BookieSocketAddress, Long&gt; bookieFailureHistory);
+
+
+    /**
+     * Reorder the read last add confirmed sequence of a given write quorum &lt;i&gt;writeSet&lt;/i&gt;.
+     *
+     * @param ensemble
+     *          Ensemble to read entries.
+     * @param writeSet
+     *          Write quorum to read entries.
+     * @param bookieFailureHistory
+     *          Observed failures on the bookies
+     * @return read sequence of bookies
+     */
+    public List&lt;Integer&gt; reorderReadLACSequence(ArrayList&lt;BookieSocketAddress&gt; ensemble,
+                                            List&lt;Integer&gt; writeSet, Map&lt;BookieSocketAddress, Long&gt; bookieFailureHistory);
+}</pre>
+<div style='display:none;' class='raw-code'><pre>public interface EnsemblePlacementPolicy {
+
+    /**
+     * Initialize the policy.
+     *
+     * @param conf client configuration
+     * @param optionalDnsResolver dns resolver
+     * @param hashedWheelTimer timer
+     * @param featureProvider feature provider
+     * @param statsLogger stats logger
+     * @param alertStatsLogger stats logger for alerts
+     */
+    public EnsemblePlacementPolicy initialize(ClientConfiguration conf,
+                                              Optional&lt;DNSToSwitchMapping&gt; optionalDnsResolver,
+                                              HashedWheelTimer hashedWheelTimer,
+                                              FeatureProvider featureProvider,
+                                              StatsLogger statsLogger,
+                                              AlertStatsLogger alertStatsLogger);
+
+    /**
+     * Uninitialize the policy
+     */
+    public void uninitalize();
+
+    /**
+     * A consistent view of the cluster (what bookies are available as writable, what bookies are available as
+     * readonly) is updated when any changes happen in the cluster.
+     *
+     * @param writableBookies
+     *          All the bookies in the cluster available for write/read.
+     * @param readOnlyBookies
+     *          All the bookies in the cluster available for readonly.
+     * @return the dead bookies during this cluster change.
+     */
+    public Set&lt;BookieSocketAddress&gt; onClusterChanged(Set&lt;BookieSocketAddress&gt; writableBookies,
+                                                     Set&lt;BookieSocketAddress&gt; readOnlyBookies);
+
+    /**
+     * Choose &lt;i&gt;numBookies&lt;/i&gt; bookies for ensemble. If the count is more than the number of available
+     * nodes, {@link BKNotEnoughBookiesException} is thrown.
+     *
+     * @param ensembleSize
+     *          Ensemble Size
+     * @param writeQuorumSize
+     *          Write Quorum Size
+     * @param excludeBookies
+     *          Bookies that should not be considered as targets.
+     * @return list of bookies chosen as targets.
+     * @throws BKNotEnoughBookiesException if not enough bookies available.
+     */
+    public ArrayList&lt;BookieSocketAddress&gt; newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
+                                                      Set&lt;BookieSocketAddress&gt; excludeBookies) throws BKNotEnoughBookiesException;
+
+    /**
+     * Choose a new bookie to replace &lt;i&gt;bookieToReplace&lt;/i&gt;. If no bookie available in the cluster,
+     * {@link BKNotEnoughBookiesException} is thrown.
+     *
+     * @param bookieToReplace
+     *          bookie to replace
+     * @param excludeBookies
+     *          bookies that should not be considered as candidate.
+     * @return the bookie chosen as target.
+     * @throws BKNotEnoughBookiesException
+     */
+    public BookieSocketAddress replaceBookie(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
+                                             Collection&lt;BookieSocketAddress&gt; currentEnsemble, BookieSocketAddress bookieToReplace,
+                                             Set&lt;BookieSocketAddress&gt; excludeBookies) throws BKNotEnoughBookiesException;
+
+    /**
+     * Reorder the read sequence of a given write quorum &lt;i&gt;writeSet&lt;/i&gt;.
+     *
+     * @param ensemble
+     *          Ensemble to read entries.
+     * @param writeSet
+     *          Write quorum to read entries.
+     * @param bookieFailureHistory
+     *          Observed failures on the bookies
+     * @return read sequence of bookies
+     */
+    public List&lt;Integer&gt; reorderReadSequence(ArrayList&lt;BookieSocketAddress&gt; ensemble,
+                                             List&lt;Integer&gt; writeSet, Map&lt;BookieSocketAddress, Long&gt; bookieFailureHistory);
+
+
+    /**
+     * Reorder the read last add confirmed sequence of a given write quorum &lt;i&gt;writeSet&lt;/i&gt;.
+     *
+     * @param ensemble
+     *          Ensemble to read entries.
+     * @param writeSet
+     *          Write quorum to read entries.
+     * @param bookieFailureHistory
+     *          Observed failures on the bookies
+     * @return read sequence of bookies
+     */
+    public List&lt;Integer&gt; reorderReadLACSequence(ArrayList&lt;BookieSocketAddress&gt; ensemble,
+                                            List&lt;Integer&gt; writeSet, Map&lt;BookieSocketAddress, Long&gt; bookieFailureHistory);
+}</pre>
+</div></div>
+<p>The methods in this interface covers three parts - 1) initialization and uninitialization; 2) how to choose bookies to
+place data; and 3) how to choose bookies to do speculative reads.</p>
+<div class="section" id="initialization-and-uninitialization">
+<h4>Initialization and uninitialization<a class="headerlink" href="#initialization-and-uninitialization" title="Permalink to this headline">¶</a></h4>
+<p>The ensemble placement policy is constructed by jvm reflection during constructing bookkeeper client. After the
+<cite>EnsemblePlacementPolicy</cite> is constructed, bookkeeper client will call <cite>#initialize</cite> to initialize the placement policy.</p>
+<p>The <cite>#initialize</cite> method takes a few resources from bookkeeper for instantiating itself. These resources include:</p>
+<ol class="arabic simple">
+<li><cite>ClientConfiguration</cite> : The client configuration that used for constructing the bookkeeper client. The implementation of the placement policy could obtain its settings from this configuration.</li>
+<li><cite>DNSToSwitchMapping</cite>: The DNS resolver for the ensemble policy to build the network topology of the bookies cluster. It is optional.</li>
+<li><cite>HashedWheelTimer</cite>: A hashed wheel timer that could be used for timing related work. For example, a stabilize network topology could use it to delay network topology changes to reduce impacts of flapping bookie registrations due to zk session expires.</li>
+<li><cite>FeatureProvider</cite>: A feature provider that the policy could use for enabling or disabling its offered features. For example, a region-aware placement policy could offer features to disable placing data to a specific region at runtime.</li>
+<li><cite>StatsLogger</cite>: A stats logger for exposing stats.</li>
+<li><cite>AlertStatsLogger</cite>: An alert stats logger for exposing critical stats that needs to be alerted.</li>
+</ol>
+<p>The ensemble placement policy is a single instance per bookkeeper client. The instance will be <cite>#uninitialize</cite> when
+closing the bookkeeper client. The implementation of a placement policy should be responsible for releasing all the
+resources that allocated during <cite>#initialize</cite>.</p>
+</div>
+<div class="section" id="how-to-choose-bookies-to-place">
+<h4>How to choose bookies to place<a class="headerlink" href="#how-to-choose-bookies-to-place" title="Permalink to this headline">¶</a></h4>
+<p>The bookkeeper client discovers list of bookies from zookeeper via <cite>BookieWatcher</cite> - whenever there are bookie changes,
+the ensemble placement policy will be notified with new list of bookies via <cite>onClusterChanged(writableBookie, readOnlyBookies)</cite>.
+The implementation of the ensemble placement policy will react on those changes to build new network topology. Subsequent
+operations like <cite>newEnsemble</cite> or <cite>replaceBookie</cite> hence can operate on the new network topology.</p>
+<dl class="docutils">
+<dt>newEnsemble(ensembleSize, writeQuorumSize, ackQuorumSize, excludeBookies)</dt>
+<dd>Choose <cite>ensembleSize</cite> bookies for ensemble. If the count is more than the number of available nodes,
+<cite>BKNotEnoughBookiesException</cite> is thrown.</dd>
+<dt>replaceBookie(ensembleSize, writeQuorumSize, ackQuorumSize, currentEnsemble, bookieToReplace, excludeBookies)</dt>
+<dd>Choose a new bookie to replace <cite>bookieToReplace</cite>. If no bookie available in the cluster,
+<cite>BKNotEnoughBookiesException</cite> is thrown.</dd>
+</dl>
+<p>Both <cite>RackAware</cite> and <cite>RegionAware</cite> placement policies are <cite>TopologyAware</cite> policies. They build a <cite>NetworkTopology</cite> on
+responding bookie changes, use it for ensemble placement and ensure rack/region coverage for write quorums - a write
+quorum should be covered by at least two racks or regions.</p>
+<div class="section" id="network-topology">
+<h5>Network Topology<a class="headerlink" href="#network-topology" title="Permalink to this headline">¶</a></h5>
+<p>The network topology is presenting a cluster of bookies in a tree hierarchical structure. For example, a bookie cluster
+may be consists of many data centers (aka regions) filled with racks of machines. In this tree structure, leaves
+represent bookies and inner nodes represent switches/routes that manage traffic in/out of regions or racks.</p>
+<p>For example, there are 3 bookies in region <cite>A</cite>. They are <cite>bk1</cite>, <cite>bk2</cite> and <cite>bk3</cite>. And their network locations are
+<cite>/region-a/rack-1/bk1</cite>, <cite>/region-a/rack-1/bk2</cite> and <cite>/region-a/rack-2/bk3</cite>. So the network topology will look like below:</p>
+<div class="highlight-python"><pre>       root
+        |
+    region-a
+      /  \
+ rack-1  rack-2
+  /  \       \
+bk1  bk2     bk3</pre>
+<div style='display:none;' class='raw-code'><pre>       root
+        |
+    region-a
+      /  \
+ rack-1  rack-2
+  /  \       \
+bk1  bk2     bk3</pre>
+</div></div>
+<p>Another example, there are 4 bookies spanning in two regions <cite>A</cite> and <cite>B</cite>. They are <cite>bk1</cite>, <cite>bk2</cite>, <cite>bk3</cite> and <cite>bk4</cite>. And
+their network locations are <cite>/region-a/rack-1/bk1</cite>, <cite>/region-a/rack-1/bk2</cite>, <cite>/region-b/rack-2/bk3</cite> and <cite>/region-b/rack-2/bk4</cite>.
+The network topology will look like below:</p>
+<div class="highlight-python"><pre>       root
+       /  \
+region-a  region-b
+   |         |
+ rack-1    rack-2
+  / \       / \
+bk1  bk2  bk3  bk4</pre>
+<div style='display:none;' class='raw-code'><pre>       root
+       /  \
+region-a  region-b
+   |         |
+ rack-1    rack-2
+  / \       / \
+bk1  bk2  bk3  bk4</pre>
+</div></div>
+<p>The network location of each bookie is resolved by a <cite>DNSResolver</cite> (interface is described as below). The <cite>DNSResolver</cite>
+resolves a list of DNS-names or IP-addresses into a list of network locations. The network location that is returned
+must be a network path of the form <cite>/region/rack</cite>, where <cite>/</cite> is the root, and <cite>region</cite> is the region id representing
+the data center where <cite>rack</cite> is located. The network topology of the bookie cluster would determine the number of
+components in the network path.</p>
+<div class="highlight-python"><pre>/**
+ * An interface that must be implemented to allow pluggable
+ * DNS-name/IP-address to RackID resolvers.
+ *
+ */
+@Beta
+public interface DNSToSwitchMapping {
+    /**
+     * Resolves a list of DNS-names/IP-addresses and returns back a list of
+     * switch information (network paths). One-to-one correspondence must be
+     * maintained between the elements in the lists.
+     * Consider an element in the argument list - x.y.com. The switch information
+     * that is returned must be a network path of the form /foo/rack,
+     * where / is the root, and 'foo' is the switch where 'rack' is connected.
+     * Note the hostname/ip-address is not part of the returned path.
+     * The network topology of the cluster would determine the number of
+     * components in the network path.
+     * &lt;p/&gt;
+     *
+     * If a name cannot be resolved to a rack, the implementation
+     * should return {@link NetworkTopology#DEFAULT_RACK}. This
+     * is what the bundled implementations do, though it is not a formal requirement
+     *
+     * @param names the list of hosts to resolve (can be empty)
+     * @return list of resolved network paths.
+     * If &lt;i&gt;names&lt;/i&gt; is empty, the returned list is also empty
+     */
+    public List&lt;String&gt; resolve(List&lt;String&gt; names);
+
+    /**
+     * Reload all of the cached mappings.
+     *
+     * If there is a cache, this method will clear it, so that future accesses
+     * will get a chance to see the new data.
+     */
+    public void reloadCachedMappings();
+}</pre>
+<div style='display:none;' class='raw-code'><pre>/**
+ * An interface that must be implemented to allow pluggable
+ * DNS-name/IP-address to RackID resolvers.
+ *
+ */
+@Beta
+public interface DNSToSwitchMapping {
+    /**
+     * Resolves a list of DNS-names/IP-addresses and returns back a list of
+     * switch information (network paths). One-to-one correspondence must be
+     * maintained between the elements in the lists.
+     * Consider an element in the argument list - x.y.com. The switch information
+     * that is returned must be a network path of the form /foo/rack,
+     * where / is the root, and 'foo' is the switch where 'rack' is connected.
+     * Note the hostname/ip-address is not part of the returned path.
+     * The network topology of the cluster would determine the number of
+     * components in the network path.
+     * &lt;p/&gt;
+     *
+     * If a name cannot be resolved to a rack, the implementation
+     * should return {@link NetworkTopology#DEFAULT_RACK}. This
+     * is what the bundled implementations do, though it is not a formal requirement
+     *
+     * @param names the list of hosts to resolve (can be empty)
+     * @return list of resolved network paths.
+     * If &lt;i&gt;names&lt;/i&gt; is empty, the returned list is also empty
+     */
+    public List&lt;String&gt; resolve(List&lt;String&gt; names);
+
+    /**
+     * Reload all of the cached mappings.
+     *
+     * If there is a cache, this method will clear it, so that future accesses
+     * will get a chance to see the new data.
+     */
+    public void reloadCachedMappings();
+}</pre>
+</div></div>
+<p>By default, the network topology responds to bookie changes immediately. That means if a bookie's znode appears in  or
+disappears from zookeeper, the network topology will add the bookie or remove the bookie immediately. It introduces
+instability when bookie's zookeeper registration becomes flapping. In order to address this, there is a <cite>StabilizeNetworkTopology</cite>
+which delays removing bookies from network topology if they disappear from zookeeper. It could be enabled by setting
+the following option.</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="c1"># enable stabilize network topology by setting it to a positive value.</span>
+<span class="n">bkc</span><span class="o">.</span><span class="n">networkTopologyStabilizePeriodSeconds</span><span class="o">=</span><span class="mi">10</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre># enable stabilize network topology by setting it to a positive value.
+bkc.networkTopologyStabilizePeriodSeconds=10</pre>
+</div></div>
+</div>
+<div class="section" id="rackaware-and-regionaware">
+<h5>RackAware and RegionAware<a class="headerlink" href="#rackaware-and-regionaware" title="Permalink to this headline">¶</a></h5>
+<p><cite>RackAware</cite> placement policy basically just chooses bookies from different racks in the built network topology. It
+guarantees that a write quorum will cover at least two racks.</p>
+<p><cite>RegionAware</cite> placement policy is a hierarchical placement policy, which it chooses equal-sized bookies from regions, and
+within each region it uses <cite>RackAware</cite> placement policy to choose bookies from racks. For example, if there is 3 regions -
+<cite>region-a</cite>, <cite>region-b</cite> and <cite>region-c</cite>, an application want to allocate a 15-bookies ensemble. First, it would figure
+out there are 3 regions and it should allocate 5 bookies from each region. Second, for each region, it would use
+<cite>RackAware</cite> placement policy to choose 5 bookies.</p>
+</div>
+</div>
+<div class="section" id="how-to-choose-bookies-to-do-speculative-reads">
+<h4>How to choose bookies to do speculative reads?<a class="headerlink" href="#how-to-choose-bookies-to-do-speculative-reads" title="Permalink to this headline">¶</a></h4>
+<p><cite>reorderReadSequence</cite> and <cite>reorderReadLACSequence</cite> are two methods exposed by the placement policy, to help client
+determine a better read sequence according to the network topology and the bookie failure history.</p>
+<p>In <cite>RackAware</cite> placement policy, the reads will be tried in following sequence:</p>
+<ul class="simple">
+<li>bookies are writable and didn't experience failures before</li>
+<li>bookies are writable and experienced failures before</li>
+<li>bookies are readonly</li>
+<li>bookies already disappeared from network topology</li>
+</ul>
+<p>In <cite>RegionAware</cite> placement policy, the reads will be tried in similar following sequence as <cite>RackAware</cite> placement policy.
+There is a slight different on trying writable bookies: after trying every 2 bookies from local region, it would try
+a bookie from remote region. Hence it would achieve low latency even there is network issues within local region.</p>
+</div>
+</div>
+<div class="section" id="how-to-enable-different-ensembleplacementpolicy">
+<h3>How to enable different EnsemblePlacementPolicy?<a class="headerlink" href="#how-to-enable-different-ensembleplacementpolicy" title="Permalink to this headline">¶</a></h3>
+<p>Users could configure using different ensemble placement policies by setting following options in distributedlog
+configuration files.</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="c1"># enable rack-aware ensemble placement policy</span>
+<span class="n">bkc</span><span class="o">.</span><span class="n">ensemblePlacementPolicy</span><span class="o">=</span><span class="n">org</span><span class="o">.</span><span class="n">apache</span><span class="o">.</span><span class="n">bookkeeper</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">RackawareEnsemblePlacementPolicy</span>
+<span class="c1"># enable region-aware ensemble placement policy</span>
+<span class="n">bkc</span><span class="o">.</span><span class="n">ensemblePlacementPolicy</span><span class="o">=</span><span class="n">org</span><span class="o">.</span><span class="n">apache</span><span class="o">.</span><span class="n">bookkeeper</span><span class="o">.</span><span class="n">client</span><span class="o">.</span><span class="n">RegionAwareEnsemblePlacementPolicy</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre># enable rack-aware ensemble placement policy
+bkc.ensemblePlacementPolicy=org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy
+# enable region-aware ensemble placement policy
+bkc.ensemblePlacementPolicy=org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy</pre>
+</div></div>
+<p>The network topology of bookies built by either <cite>RackawareEnsemblePlacementPolicy</cite> or <cite>RegionAwareEnsemblePlacementPolicy</cite>
+is done via a <cite>DNSResolver</cite>. The default <cite>DNSResolver</cite> is a script based DNS resolver. It reads the configuration
+parameters, executes any defined script, handles errors and resolves domain names to network locations. The script
+is configured via following settings in distributedlog configuration.</p>
+<div class="highlight-python"><pre>bkc.networkTopologyScriptFileName=/path/to/dns/resolver/script</pre>
+<div style='display:none;' class='raw-code'><pre>bkc.networkTopologyScriptFileName=/path/to/dns/resolver/script</pre>
+</div></div>
+<p>Alternatively, the <cite>DNSResolver</cite> could be configured in following settings and loaded via reflection. <cite>DNSResolverForRacks</cite>
+is a good example to check out for customizing your dns resolver based our network environments.</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="n">bkEnsemblePlacementDnsResolverClass</span><span class="o">=</span><span class="n">com</span><span class="o">.</span><span class="n">twitter</span><span class="o">.</span><span class="n">distributedlog</span><span class="o">.</span><span class="n">net</span><span class="o">.</span><span class="n">DNSResolverForRacks</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>bkEnsemblePlacementDnsResolverClass=com.twitter.distributedlog.net.DNSResolverForRacks</pre>
+</div></div>
+</div>
+</div>
+</div>
+
+
+      </div>
+    </div>
+    <div class="hidden-xs col-sm-3 col-md-3 col-md-offset-1 col-lg-3 db-sidebar">
+      
+        <div class="db-toc" role="complementary">
+          <ul class="current">
+            <li class="toctree-l0 current"><a class="current reference internal" href="../index.html">DistributedLog</a></li>
+          </ul>
+          <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/main.html">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../design/main.html">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="main.html">Implementation</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../operations/main.html">Deployment &amp; Administration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../operations/deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/operations.html">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../operations/bookkeeper.html">BookKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+          <span id="last"></span>
+        </div>
+      
+    </div>
+    <!-- <div id="slidebox"> -->
+      <!-- <button id="slidebox_close" type="button" class="close">&times;</button> -->
+      <!-- <p>Rate This Page</p> -->
+      <!-- <div id="rateYo"></div> -->
+      <!-- <p>Comment</p>
+      <input type="text" name="comment"></input>
+      <button>Submit</button> -->
+    <!-- </div> -->
+  </div>
+</div>
+<footer class="footer">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-md-10 col-md-offset-1">
+        <p class="pull-right">
+          <a href="#">Back to top</a>
+          
+          <br/>
+          
+<div id="sourcelink">
+  <a href="git@github.com:twitter/distributedlog.git/tree/master/docs/implementation/storage.rst"
+     rel="nofollow">Source</a>
+  
+  <a href="../_sources/implementation/storage.txt"
+     rel="nofollow">Raw</a>
+  <a href="../__docbird-build.log"
+     rel="nofollow">Build Log</a>
+  <a href="/report/stats/distributedlog:distributedlog"
+     rel="nofollow">Stats</a>
+</div>
+        </p>
+        <p>
+          Built and hosted by <a href="/">DocBird</a>. 
+        </p>
+      </div>
+    </div>
+  </div>
+</footer>
+<script type="text/javascript" src="../_static/js/docbird.js"></script>
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-30775-8']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+</script>
+<!-- <script type="text/javascript" src="//s/d41d8cd98f00b204e9800998ecf8427e/en_US-tbnx1s-1988229788/6163/97/1.4.3/_/download/batch/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector.js?collectorId=e62237fc"></script>
+-->
+
+<script type="text/javascript">
+  $(document).ready(function () {
+    // track user activity time (from https://github.com/jasonzissman/TimeMe.js)
+    TimeMe.setIdleDurationInSeconds(30);
+    TimeMe.setCurrentPageName("my-home-page");
+    TimeMe.initialize();
+
+    // record page visit event when user leaves the page
+    window.onbeforeunload = function (event) {
+      xmlhttp=new XMLHttpRequest();
+      xmlhttp.withCredentials = true;
+      xmlhttp.open("POST", "/event/distributedlog:distributedlog/visit", false);
+      xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      var event_data = {
+        total_time_reading: TimeMe.getTimeOnCurrentPageInSeconds(),
+        page: window.location.href
+      };
+      //alert("send: " + $.param(event_data));
+      xmlhttp.send($.param(event_data));
+    };
+
+    // ask user for page rating after 20 seconds
+    // setTimeout(function(){
+    //   alert("Rate this page!");
+    // }, 20000);
+  });
+</script>
+<!-- <style>
+#slidebox{
+  width: 250px;
+  height: 90px;
+  padding: 10px;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  position: fixed;
+  bottom: 3px;
+  right: -280px;
+  z-index: 1;
+}
+#slidebox .close{
+  margin-top: -5px;
+  opacity: 0.5;
+}
+#slidebox .close:hover{
+  opacity: 0.7;
+}
+</style> -->
+<script type="text/javascript">
+$(function() {
+  // $(window).scroll(function(){
+  //   var distanceTop = $('#last').offset().top - $(window).height();
+
+  //   if  ($(window).scrollTop() > distanceTop)
+  //     $('#slidebox').animate({'right':'3px'},300);
+  //   else
+  //     $('#slidebox').stop(true).animate({'right':'-280px'},100);
+  // });
+
+  // $('#slidebox .close').bind('click',function(){
+  //   $(this).parent().remove();
+  // });
+
+  $("#rateYo").rateYo({
+    normalFill: "#A0A0A0",
+    halfStar: true,
+    rating: (Cookies.get('docbird.rating.distributedlog.distributedlog') || 0.0)
+  }).on("rateyo.set", function (e, data) {
+      var event_data = {
+        comment: '', // see todo note below
+        rating: data.rating,
+        page: window.location.href
+      };
+      Cookies.get('docbird.rating.distributedlog.distributedlog', data.rating)
+      $.post('/event/distributedlog:distributedlog/rating', event_data)
+      // xmlhttp=new XMLHttpRequest();
+      // xmlhttp.withCredentials = true;
+      // var event_data = {
+      //   comment: '', // see todo note below
+      //   rating: data.rating,
+      //   page: window.location.href
+      // };
+      // xmlhttp.open("GET", "/event/distributedlog/rating?" + $.param(event_data), false);
+      // xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      // // todo: implement comment form in rating slide out,
+      // // and instead of hooking this event, include a submit button,
+      // // and read the rating with rating() method
+
+      // // alert("send: " + $.param(event_data));
+      // xmlhttp.send();
+
+  });
+
+});
+</script>
+<script src="_static/js/selection-sharer.js"></script>
+<script>
+$('.db-content-body').selectionSharer();
+</script>
+  </body>
+</html>

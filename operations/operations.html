@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>DistributedLog Operations &mdash; DistributedLog 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/override.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/bootstrap-3.1.0/css/bootstrap-theme.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/featherlight.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/docbird-xs.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/jquery.rateyo.min.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/css/selection-sharer.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="../_static/bootstrap-3.1.0/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="../_static/js/bootstrap-docbird.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-1.11.0.min.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery-fix.js"></script>
+    <script type="text/javascript" src="../_static/js/featherlight.min.js"></script>
+    <script type="text/javascript" src="../_static/js/ifvisible.js"></script>
+    <script type="text/javascript" src="../_static/js/timeme.js"></script>
+    <script type="text/javascript" src="../_static/js/jquery.rateyo.min.js"></script>
+    <script type="text/javascript" src="../_static/js/js.cookie.js"></script>
+    <link rel="shortcut icon" href="../_static/docbird.ico"/>
+    <link rel="top" title="DistributedLog 1.0 documentation" href="../index.html" />
+    <link rel="up" title="Deployment &amp; Administration" href="main.html" />
+    <link rel="next" title="Performance Tuning" href="performance.html" />
+    <link rel="prev" title="Cluster Setup &amp; Deployment" href="deployment.html" />
+<meta charset='utf-8'>
+<meta http-equiv='X-UA-Compatible' content='IE=edge,chrome=1'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1'>
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<meta property="docbird:project" content="DistributedLog" />
+
+  </head>
+  <body>
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+  <div class="container-fluid">
+    <div class="row db-header">
+      <div class="col-sm-3 col-md-3 col-lg-3 hidden-xs db-header-controls">
+        <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      </div>
+      <div class="col-sm-7 col-md-7 col-lg-7 col-xs-12 db-header-info">
+        <div class="visible-xs">
+          <a href="/" alt="Back to Docbird">
+  <div class="db-home-button">
+    <span class="glyphicon glyphicon-home"></span>
+  </div>
+</a>
+        </div>
+        <div class="visible-xs db-xs-menu-button">
+          <div class="navbar-header">
+  <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#db-xs-menu">
+    <span class="sr-only">Toggle navigation</span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+  </button>
+</div>
+        </div>
+        <div class="db-header-projectname">
+          <h1><a href="../index.html">DistributedLog</a></h1>
+        </div>
+      </div>
+    </div>
+    <div class="row db-xs-menu hidden-sm hidden-md hidden-lg
+    collapse" id="db-xs-menu">
+      
+<form action="../search.html" method="get" class="db-searchbox-form">
+ <div class="form-group">
+  <input type="text" name="q" class="form-control db-searchbox-input" placeholder="Search DistributedLog" />
+ </div>
+  <input type="hidden" name="check_keywords" value="yes" />
+  <input type="hidden" name="area" value="default" />
+</form>
+
+      <div class="db-toc" role="complementary">
+        <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/main.html">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../design/main.html">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../implementation/main.html">Implementation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="main.html">Deployment &amp; Administration</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bookkeeper.html">BookKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+      </div>
+    </div>
+  </div>
+</div>
+<div class="container">
+  <div class="row">
+    <div style="z-index: 1" class="col-xs-12 col-sm-12 col-md-12 col-lg-12">
+      <style>
+  .overflow-container {
+    display: none;
+  }
+  .overflow-toggle {
+    text-decoration: none;
+    border-bottom: none;
+    border-radius: 4px;
+    border: 1px solid #eee;
+    padding: 1px 3px 3px;
+    color: #888;
+    font-weight: normal;
+    background-color: linen;
+    line-height: 1.85em;
+    cursor: pointer;
+  }
+  .overflow-toggle:hover {
+    color: #333;
+    border-color: #ccc;
+    background-color: beige;
+  }
+</style>
+<script>
+$(function(){
+  $('.overflow-toggle').on('click', function(){
+    $(this).next().toggle();
+  });
+});
+</script>
+<div class="db-project-header-container">
+  <div class="row">
+    
+    <div class="db-project-info col-lg-12 col-md-12 col-sm-12 col-xs-12">
+      <h1>
+        <a href="../index.html">DistributedLog</a>
+        
+      </h1>
+        
+      <div class="db-code-link">
+        <a href="git@github.com:twitter/distributedlog.git/tree/master/" target="_blank">git@github.com:twitter/distributedlog.git/tree/master/</a>
+      </div>
+      
+      
+    </div>
+  </div>
+  
+  <div class="row db-project-links-row">
+    <div class=" col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">OWNERS</span>
+          
+            <em>None</em>
+          
+          
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <div class="db-hashtag-container">
+        
+        <span class="db-project-link-label">TAGS</span>
+        
+          <em><a class="db-hashtag" href="/?q=tags:%23uses_maven">#uses_maven</a></em>
+        
+        
+      </div>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">HEALTH</span>
+        
+        <h3 style="margin-top: 0">
+<!--        <a href="/techdocs/checklist.html" class="label label-success">-->
+        <a href="/report/distributedlog" class="">
+          9.0 / 10
+          <span style="margin-left: .25em" class="glyphicon glyphicon-ok"></span>
+        </a>
+        
+      </h3>
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-3 db-project-link-column">
+      <span class="db-project-link-label">RATING</span>
+      <div id="rateYo"></div>
+    </div>
+  </div>
+  
+</div>
+    </div>
+    <div class="col-xs-12 col-sm-8 col-md-8 col-lg-8">
+      <div class="db-content-body">
+        
+  <div class="section" id="distributedlog-operations">
+<h1>DistributedLog Operations<a class="headerlink" href="#distributedlog-operations" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="feature-provider">
+<h2>Feature Provider<a class="headerlink" href="#feature-provider" title="Permalink to this headline">¶</a></h2>
+<p>DistributedLog uses a <cite>feature-provider</cite> library provided by Apache BookKeeper for managing features
+dynamically at runtime. It is a <a class="reference external" href="https://en.wikipedia.org/wiki/Feature_toggle">feature-flag</a> system used to proportionally control what features
+are enabled for the system. In other words, it is a way of altering the control in a system without
+restarting it. It can be used during all stages of development, its most visible use case is on
+production. For instance, during a production release, you can enable or disable individual features,
+control the data flow through the system, thereby minimizing risk of system failure in real time.</p>
+<p>This <cite>feature-provider</cite> interface is pluggable and easy to integrate with any configuration management
+system.</p>
+<div class="section" id="api">
+<h3>API<a class="headerlink" href="#api" title="Permalink to this headline">¶</a></h3>
+<p><cite>FeatureProvider</cite> is a provider that manages features under different scopes. The provider is responsible
+for loading features dynamically at runtime. A <cite>Feature</cite> is a numeric flag that control how much percentage
+of this feature will be available to the system - the number is called <cite>availability</cite>.</p>
+<div class="highlight-python"><pre>Feature.name() =&gt; returns the name of this feature
+Feature.availability() =&gt; returns the availability of this feature
+Feature.isAvailable() =&gt; returns true if its availability is larger than 0; otherwise false</pre>
+<div style='display:none;' class='raw-code'><pre>Feature.name() =&gt; returns the name of this feature
+Feature.availability() =&gt; returns the availability of this feature
+Feature.isAvailable() =&gt; returns true if its availability is larger than 0; otherwise false</pre>
+</div></div>
+<p>It is easy to obtain a feature from the provider by just providing a feature name.</p>
+<div class="highlight-python"><pre>FeatureProvider provider = ...;
+Feature feature = provider.getFeature("feature1"); // returns the feature named 'feature1'</pre>
+<div style='display:none;' class='raw-code'><pre>FeatureProvider provider = ...;
+Feature feature = provider.getFeature("feature1"); // returns the feature named 'feature1'</pre>
+</div></div>
+<p>The <cite>FeatureProvider</cite> is scopable to allow creating features in a hierarchical way. For example, if a system
+is comprised of two subsystems, one is <em>cache</em>, while the other one is <em>storage</em>. so the features belong to
+different subsystems can be created under different scopes.</p>
+<div class="highlight-python"><pre>FeatureProvider provider = ...;
+FeatureProvider cacheFeatureProvider = provider.scope("cache");
+FeatureProvider storageFeatureProvider = provider.scope("storage");
+Feature writeThroughFeature = cacheFeatureProvider.getFeature("write_through");
+Feature duralWriteFeature = storageFeatureProvider.getFeature("dural_write");
+
+// so the available features under `provider` are: (assume scopes are separated by '.')
+// - 'cache.write_through'
+// - 'storage.dural_write'</pre>
+<div style='display:none;' class='raw-code'><pre>FeatureProvider provider = ...;
+FeatureProvider cacheFeatureProvider = provider.scope("cache");
+FeatureProvider storageFeatureProvider = provider.scope("storage");
+Feature writeThroughFeature = cacheFeatureProvider.getFeature("write_through");
+Feature duralWriteFeature = storageFeatureProvider.getFeature("dural_write");
+
+// so the available features under `provider` are: (assume scopes are separated by '.')
+// - 'cache.write_through'
+// - 'storage.dural_write'</pre>
+</div></div>
+<p>The feature provider could be passed to <cite>DistributedLogNamespaceBuilder</cite> when building the namespace,
+thereby it would be used for controlling the features exposed under <cite>DistributedLogNamespace</cite>.</p>
+<div class="highlight-python"><pre>FeatureProvider rootProvider = ...;
+FeatureProvider dlFeatureProvider = rootProvider.scope("dlog");
+DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+    .uri(uri)
+    .conf(conf)
+    .featureProvider(dlFeatureProvider)
+    .build();</pre>
+<div style='display:none;' class='raw-code'><pre>FeatureProvider rootProvider = ...;
+FeatureProvider dlFeatureProvider = rootProvider.scope("dlog");
+DistributedLogNamespace namespace = DistributedLogNamespaceBuilder.newBuilder()
+    .uri(uri)
+    .conf(conf)
+    .featureProvider(dlFeatureProvider)
+    .build();</pre>
+</div></div>
+<p>The feature provider is loaded by reflection on distributedlog write proxy server. You could specify
+the feature provider class name as below. Otherwise it would use <cite>DefaultFeatureProvider</cite>, which disables
+all the features by default.</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="n">featureProviderClass</span><span class="o">=</span><span class="n">com</span><span class="o">.</span><span class="n">twitter</span><span class="o">.</span><span class="n">distributedlog</span><span class="o">.</span><span class="n">feature</span><span class="o">.</span><span class="n">DynamicConfigurationFeatureProvider</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>featureProviderClass=com.twitter.distributedlog.feature.DynamicConfigurationFeatureProvider</pre>
+</div></div>
+</div>
+<div class="section" id="configuration-based-feature-provider">
+<h3>Configuration Based Feature Provider<a class="headerlink" href="#configuration-based-feature-provider" title="Permalink to this headline">¶</a></h3>
+<p>Beside <cite>DefaultFeatureProvider</cite>, distributedlog also provides a file-based feature provider - it loads
+the features from properties files.</p>
+<p>All the features and their availabilities are configured in properties file format. For example,</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="n">cache</span><span class="o">.</span><span class="n">write_through</span><span class="o">=</span><span class="mi">100</span>
+<span class="n">storage</span><span class="o">.</span><span class="n">dural_write</span><span class="o">=</span><span class="mi">0</span>
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>cache.write_through=100
+storage.dural_write=0</pre>
+</div></div>
+<p>You could configure <cite>featureProviderClass</cite> in distributedlog configuration file by setting it to
+<cite>com.twitter.distributedlog.feature.DynamicConfigurationFeatureProvider</cite> to enable file-based feature
+provider. The feature provider will load the features from two files, one is base config file configured
+by <cite>fileFeatureProviderBaseConfigPath</cite>, while the other one is overlay config file configured by
+<cite>fileFeatureProviderOverlayConfigPath</cite>. Current implementation doesn't differentiate these two files
+too much other than the <cite>overlay</cite> config will override the settings in <cite>base</cite> config. It is recommended
+to have a base config file for storing the default availability values for your system and dynamically
+adjust the availability values in overlay config file.</p>
+<div class="highlight-python"><pre>featureProviderClass=com.twitter.distributedlog.feature.DynamicConfigurationFeatureProvider
+fileFeatureProviderBaseConfigPath=/path/to/base/config
+fileFeatureProviderOverlayConfigPath=/path/to/overlay/config
+// how frequent we reload the config files
+dynamicConfigReloadIntervalSec=60</pre>
+<div style='display:none;' class='raw-code'><pre>featureProviderClass=com.twitter.distributedlog.feature.DynamicConfigurationFeatureProvider
+fileFeatureProviderBaseConfigPath=/path/to/base/config
+fileFeatureProviderOverlayConfigPath=/path/to/overlay/config
+// how frequent we reload the config files
+dynamicConfigReloadIntervalSec=60</pre>
+</div></div>
+</div>
+<div class="section" id="available-features">
+<h3>Available Features<a class="headerlink" href="#available-features" title="Permalink to this headline">¶</a></h3>
+<p>Check the <a class="reference internal" href="../references/features.html"><em>Features</em></a> reference page for the features exposed by DistributedLog.</p>
+</div>
+</div>
+<div class="section" id="dlog">
+<h2><cite>dlog</cite><a class="headerlink" href="#dlog" title="Permalink to this headline">¶</a></h2>
+<p>A CLI is provided for inspecting DistributedLog streams and metadata.</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>dlog
+JMX enabled by default
+Usage: dlog &lt;command&gt;
+where <span class="nb">command</span> is one of:
+    <span class="nb">local</span>               Run distributedlog sandbox
+    example             Run distributedlog example
+    tool                Run distributedlog tool
+    proxy_tool          Run distributedlog proxy tool to interact with proxies
+    balancer            Run distributedlog balancer
+    admin               Run distributedlog admin tool
+    <span class="nb">help</span>                This <span class="nb">help</span> message
+
+or <span class="nb">command</span> is the full name of a class with a defined main<span class="o">()</span> method.
+
+Environment variables:
+    DLOG_LOG_CONF        Log4j configuration file <span class="o">(</span>default <span class="nv">$HOME</span>/src/distributedlog/distributedlog-service/conf/log4j.properties<span class="o">)</span>
+    DLOG_EXTRA_OPTS      Extra options to be passed to the jvm
+    DLOG_EXTRA_CLASSPATH Add extra paths to the dlog classpath
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>dlog
+JMX enabled by default
+Usage: dlog &lt;command&gt;
+where command is one of:
+    local               Run distributedlog sandbox
+    example             Run distributedlog example
+    tool                Run distributedlog tool
+    proxy_tool          Run distributedlog proxy tool to interact with proxies
+    balancer            Run distributedlog balancer
+    admin               Run distributedlog admin tool
+    help                This help message
+
+or command is the full name of a class with a defined main() method.
+
+Environment variables:
+    DLOG_LOG_CONF        Log4j configuration file (default $HOME/src/distributedlog/distributedlog-service/conf/log4j.properties)
+    DLOG_EXTRA_OPTS      Extra options to be passed to the jvm
+    DLOG_EXTRA_CLASSPATH Add extra paths to the dlog classpath</pre>
+</div></div>
+<p>These variable can also be set in conf/dlogenv.sh</p>
+<div class="section" id="create-a-stream">
+<h3>Create a stream<a class="headerlink" href="#create-a-stream" title="Permalink to this headline">¶</a></h3>
+<p>To create a stream:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>dlog tool create -u &lt;DL URI&gt; -r &lt;STREAM PREFIX&gt; -e &lt;STREAM EXPRESSION&gt;
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>dlog tool create -u &lt;DL URI&gt; -r &lt;STREAM PREFIX&gt; -e &lt;STREAM EXPRESSION&gt;</pre>
+</div></div>
+</div>
+<div class="section" id="list-the-streams">
+<h3>List the streams<a class="headerlink" href="#list-the-streams" title="Permalink to this headline">¶</a></h3>
+<p>To list all the streams under a given DistributedLog namespace:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>dlog tool list -u &lt;DL URI&gt;
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>dlog tool list -u &lt;DL URI&gt;</pre>
+</div></div>
+</div>
+<div class="section" id="show-stream-s-information">
+<h3>Show stream's information<a class="headerlink" href="#show-stream-s-information" title="Permalink to this headline">¶</a></h3>
+<p>To view the metadata associated with a stream:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>dlog tool show -u &lt;DL URI&gt; -s &lt;STREAM NAME&gt;
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>dlog tool show -u &lt;DL URI&gt; -s &lt;STREAM NAME&gt;</pre>
+</div></div>
+</div>
+<div class="section" id="dump-a-stream">
+<h3>Dump a stream<a class="headerlink" href="#dump-a-stream" title="Permalink to this headline">¶</a></h3>
+<p>To dump the items inside a stream:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>dlog tool dump -u &lt;DL URI&gt; -s &lt;STREAM NAME&gt; -o &lt;START TXN ID&gt; -l &lt;NUM RECORDS&gt;
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>dlog tool dump -u &lt;DL URI&gt; -s &lt;STREAM NAME&gt; -o &lt;START TXN ID&gt; -l &lt;NUM RECORDS&gt;</pre>
+</div></div>
+</div>
+<div class="section" id="delete-a-stream">
+<h3>Delete a stream<a class="headerlink" href="#delete-a-stream" title="Permalink to this headline">¶</a></h3>
+<p>To delete a stream, run:</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>dlog tool delete -u &lt;DL URI&gt; -s &lt;STREAM NAME&gt;
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>dlog tool delete -u &lt;DL URI&gt; -s &lt;STREAM NAME&gt;</pre>
+</div></div>
+</div>
+<div class="section" id="truncate-a-stream">
+<h3>Truncate a stream<a class="headerlink" href="#truncate-a-stream" title="Permalink to this headline">¶</a></h3>
+<p>Truncate the streams under a given DistributedLog namespace. You could specify a filter to match the streams that you want to truncate.</p>
+<p>There is a difference between the <tt class="docutils literal"><span class="pre">truncate</span></tt> and <tt class="docutils literal"><span class="pre">delete</span></tt> command. When you issue a <tt class="docutils literal"><span class="pre">truncate</span></tt>, the data will be purge without removing the streams. A <tt class="docutils literal"><span class="pre">delete</span></tt> will delete the stream. You can pass the flag <tt class="docutils literal"><span class="pre">-delete</span></tt> to the <tt class="docutils literal"><span class="pre">truncate</span></tt> command to also delete the streams.</p>
+<div class="highlight-bash"><div class="highlight"><pre><span></span>dlog tool truncate -u &lt;DL URI&gt;
+</pre></div>
+<div style='display:none;' class='raw-code'><pre>dlog tool truncate -u &lt;DL URI&gt;</pre>
+</div></div>
+</div>
+</div>
+</div>
+
+
+      </div>
+    </div>
+    <div class="hidden-xs col-sm-3 col-md-3 col-md-offset-1 col-lg-3 db-sidebar">
+      
+        <div class="db-toc" role="complementary">
+          <ul class="current">
+            <li class="toctree-l0 current"><a class="current reference internal" href="../index.html">DistributedLog</a></li>
+          </ul>
+          <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../download.html">Releases</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc1">0.3.51-RC1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../download.html#rc0">0.3.51-RC0</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../basics/main.html">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../basics/introduction.html">Introduction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../basics/quickstart.html">Quick Start</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/main.html">API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/core.html">Core Library API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/proxy.html">Write Proxy Client API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/practice.html">Best Practices</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration/main.html">Configuration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/core.html">Core Library Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/proxy.html">Write Proxy Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/client.html">Client Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/perlog.html">Per Stream Configuration</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../considerations/main.html">Considerations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#consistency-durability-and-ordering">Consistency, Durability and Ordering</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#partitioning">Partitioning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../considerations/main.html#processing-semantics">Processing Semantics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture/main.html">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#data-model">Data Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#software-stack">Software Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture/main.html#lifecyle-of-records">Lifecyle of records</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../design/main.html">Detail Design</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#consistency">Consistency</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#streaming-reads">Streaming Reads</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../design/main.html#logsegment-lifecycle">LogSegment Lifecycle</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../globalreplicatedlog/main.html">Global Replicated Log</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#region-aware-data-placement-policy">Region Aware Data Placement Policy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../globalreplicatedlog/main.html#cross-region-speculative-reads">Cross Region Speculative Reads</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../implementation/main.html">Implementation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../implementation/storage.html">Storage</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="main.html">Deployment &amp; Administration</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="deployment.html">Cluster Setup &amp; Deployment</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="">DistributedLog Operations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance.html">Performance Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hardware.html">Hardware</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="zookeeper.html">ZooKeeper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bookkeeper.html">BookKeeper</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance/main.html">Performance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references/main.html">References</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../references/configuration.html">Configuration Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/metrics.html">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../references/features.html">Features</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials/main.html">Tutorials</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#basic">Basic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#messaging">Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#replicated-state-machines">Replicated State Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../tutorials/main.html#analytics">Analytics</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../developer/main.html">Developer</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../developer/release.html">Release</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../faq.html">FAQ</a></li>
+</ul>
+
+          <span id="last"></span>
+        </div>
+      
+    </div>
+    <!-- <div id="slidebox"> -->
+      <!-- <button id="slidebox_close" type="button" class="close">&times;</button> -->
+      <!-- <p>Rate This Page</p> -->
+      <!-- <div id="rateYo"></div> -->
+      <!-- <p>Comment</p>
+      <input type="text" name="comment"></input>
+      <button>Submit</button> -->
+    <!-- </div> -->
+  </div>
+</div>
+<footer class="footer">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-md-10 col-md-offset-1">
+        <p class="pull-right">
+          <a href="#">Back to top</a>
+          
+          <br/>
+          
+<div id="sourcelink">
+  <a href="git@github.com:twitter/distributedlog.git/tree/master/docs/operations/operations.rst"
+     rel="nofollow">Source</a>
+  
+  <a href="../_sources/operations/operations.txt"
+     rel="nofollow">Raw</a>
+  <a href="../__docbird-build.log"
+     rel="nofollow">Build Log</a>
+  <a href="/report/stats/distributedlog:distributedlog"
+     rel="nofollow">Stats</a>
+</div>
+        </p>
+        <p>
+          Built and hosted by <a href="/">DocBird</a>. 
+        </p>
+      </div>
+    </div>
+  </div>
+</footer>
+<script type="text/javascript" src="../_static/js/docbird.js"></script>
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-30775-8']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+</script>
+<!-- <script type="text/javascript" src="//s/d41d8cd98f00b204e9800998ecf8427e/en_US-tbnx1s-1988229788/6163/97/1.4.3/_/download/batch/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector/com.atlassian.jira.collector.plugin.jira-issue-collector-plugin:issuecollector.js?collectorId=e62237fc"></script>
+-->
+
+<script type="text/javascript">
+  $(document).ready(function () {
+    // track user activity time (from https://github.com/jasonzissman/TimeMe.js)
+    TimeMe.setIdleDurationInSeconds(30);
+    TimeMe.setCurrentPageName("my-home-page");
+    TimeMe.initialize();
+
+    // record page visit event when user leaves the page
+    window.onbeforeunload = function (event) {
+      xmlhttp=new XMLHttpRequest();
+      xmlhttp.withCredentials = true;
+      xmlhttp.open("POST", "/event/distributedlog:distributedlog/visit", false);
+      xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      var event_data = {
+        total_time_reading: TimeMe.getTimeOnCurrentPageInSeconds(),
+        page: window.location.href
+      };
+      //alert("send: " + $.param(event_data));
+      xmlhttp.send($.param(event_data));
+    };
+
+    // ask user for page rating after 20 seconds
+    // setTimeout(function(){
+    //   alert("Rate this page!");
+    // }, 20000);
+  });
+</script>
+<!-- <style>
+#slidebox{
+  width: 250px;
+  height: 90px;
+  padding: 10px;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  position: fixed;
+  bottom: 3px;
+  right: -280px;
+  z-index: 1;
+}
+#slidebox .close{
+  margin-top: -5px;
+  opacity: 0.5;
+}
+#slidebox .close:hover{
+  opacity: 0.7;
+}
+</style> -->
+<script type="text/javascript">
+$(function() {
+  // $(window).scroll(function(){
+  //   var distanceTop = $('#last').offset().top - $(window).height();
+
+  //   if  ($(window).scrollTop() > distanceTop)
+  //     $('#slidebox').animate({'right':'3px'},300);
+  //   else
+  //     $('#slidebox').stop(true).animate({'right':'-280px'},100);
+  // });
+
+  // $('#slidebox .close').bind('click',function(){
+  //   $(this).parent().remove();
+  // });
+
+  $("#rateYo").rateYo({
+    normalFill: "#A0A0A0",
+    halfStar: true,
+    rating: (Cookies.get('docbird.rating.distributedlog.distributedlog') || 0.0)
+  }).on("rateyo.set", function (e, data) {
+      var event_data = {
+        comment: '', // see todo note below
+        rating: data.rating,
+        page: window.location.href
+      };
+      Cookies.get('docbird.rating.distributedlog.distributedlog', data.rating)
+      $.post('/event/distributedlog:distributedlog/rating', event_data)
+      // xmlhttp=new XMLHttpRequest();
+      // xmlhttp.withCredentials = true;
+      // var event_data = {
+      //   comment: '', // see todo note below
+      //   rating: data.rating,
+      //   page: window.location.href
+      // };
+      // xmlhttp.open("GET", "/event/distributedlog/rating?" + $.param(event_data), false);
+      // xmlhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      // // todo: implement comment form in rating slide out,
+      // // and instead of hooking this event, include a submit button,
+      // // and read the rating with rating() method
+
+      // // alert("send: " + $.param(event_data));
+      // xmlhttp.send();
+
+  });
+
+});
+</script>
+<script src="_static/js/selection-sharer.js"></script>
+<script>
+$('.db-content-body').selectionSharer();
+</script>
+  </body>
+</html>
