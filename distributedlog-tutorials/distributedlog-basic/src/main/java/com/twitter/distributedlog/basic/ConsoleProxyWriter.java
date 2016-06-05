@@ -20,7 +20,7 @@ package com.twitter.distributedlog.basic;
 import com.twitter.distributedlog.*;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
-import com.twitter.finagle.thrift.ClientId;
+import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.FutureEventListener;
 import jline.ConsoleReader;
 import jline.Terminal;
@@ -47,7 +47,7 @@ public class ConsoleProxyWriter {
         final String streamName = args[1];
 
         DistributedLogClient client = DistributedLogClientBuilder.newBuilder()
-                .clientId(ClientId.apply("console-proxy-writer"))
+                .clientId(ClientId$.MODULE$.apply("console-proxy-writer"))
                 .name("console-proxy-writer")
                 .thriftmux(true)
                 .finagleNameStr(finagleNameStr)
