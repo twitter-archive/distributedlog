@@ -49,7 +49,7 @@ If you don't want to create a separated namespace, you could use the default nam
 Step 4: Create some log streams
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Let's create 5 log streams, prefixed with `messaging-test-`.
+Let's create 5 log streams, prefixed with `messaging-stream-`.
 
 ::
 
