@@ -17,9 +17,9 @@
 
 set -e
 
-if [ -z `which javac` ]; then
+if [ -z $(which javac) ]; then
     apt-get -y update
-    apt-get install -y software-properties-common python-software-properties
+    apt-get install -y  --no-install-recommends software-properties-common python-software-properties
     add-apt-repository -y ppa:webupd8team/java
     apt-get -y update
 
@@ -30,7 +30,7 @@ if [ -z `which javac` ]; then
     fi
 
     /bin/echo debconf shared/accepted-oracle-license-v1-1 select true | /usr/bin/debconf-set-selections
-    apt-get -y install oracle-java8-installer oracle-java8-set-default
+    apt-get -y install  --no-install-recommends oracle-java8-installer oracle-java8-set-default
 
     if [ -e "/tmp/oracle-jdk8-installer-cache/" ]; then
         cp -R /var/cache/oracle-jdk8-installer/* /tmp/oracle-jdk8-installer-cache

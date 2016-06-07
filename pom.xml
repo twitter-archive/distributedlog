@@ -51,7 +51,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <zookeeper.version>3.5.1-alpha</zookeeper.version>
-    <bookkeeper.version>4.3.4-TWTTR-SNAPSHOT</bookkeeper.version>
+    <bookkeeper.version>4.3.4-TWTTR</bookkeeper.version>
     <birdcage.sha>6.34.0</birdcage.sha>
     <scrooge.version>4.6.0</scrooge.version>
     <scrooge-maven-plugin.version>3.17.0</scrooge-maven-plugin.version>

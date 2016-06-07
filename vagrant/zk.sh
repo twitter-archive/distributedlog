@@ -31,7 +31,7 @@ echo "syncLimit=2" >> $log_dir/distributedlog-service/conf/zookeeper-$ZKID.prope
 echo "quorumListenOnAllIPs=true" >> $log_dir/distributedlog-service/conf/zookeeper-$ZKID.properties
 sed  '/server.1/d' \
     ./distributedlog-service/conf/bookie.conf.template > ./distributedlog-service/conf/zookeeper-$ZKID.conf
-for i in `seq 1 $NUM_ZK`; do
+for i in $(seq 1 $NUM_ZK); do
     echo "server.${i}=zk${i}:2888:3888" >>$log_dir/distributedlog-service/conf/zookeeper-$ZKID.properties
 done
 
