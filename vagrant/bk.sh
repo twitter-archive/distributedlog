@@ -37,14 +37,12 @@ sed \
     -e 's/zkServers=localhost:2181/'zkServers=$PUBLIC_ZOOKEEPER_ADDRESSES'/' \
     ./distributedlog-service/conf/bookie.conf.template > ./distributedlog-service/conf/bookie-$BROKER_ID.conf
 
-echo "listeningInterface=eth1" >> ./distributedlog-service/conf/bookie-$BROKER_ID.conf
 sleep 5 
 
-echo "create /messaging" | ./distributedlog-service/bin/dlog zkshell zk1:2181
-echo "create /messaging/bookkeeper" | ./distributedlog-service/bin/dlog zkshell zk1:2181
-echo "create /messaging/bookkeeper/ledgers" | ./distributedlog-service/bin/dlog zkshell zk1:2181
-
 if [ $BROKER_ID -eq "1" ]; then
+ echo "create /messaging" | ./distributedlog-service/bin/dlog zkshell zk1:2181
+ echo "create /messaging/bookkeeper" | ./distributedlog-service/bin/dlog zkshell zk1:2181
+ echo "create /messaging/bookkeeper/ledgers" | ./distributedlog-service/bin/dlog zkshell zk1:2181
  echo "Metafirmatting bookie"
  export BOOKIE_CONF=$log_dir/distributedlog-service/conf/bookie-$BROKER_ID.conf 
  echo "Y" |  ./distributedlog-service/bin/dlog bkshell metaformat
