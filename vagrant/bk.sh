@@ -15,7 +15,7 @@
 
 #!/bin/bash
 
-# Usage: brokers.sh <broker ID> <public hostname or IP> <list zookeeper public hostname or IP + port>
+# Usage: bk.sh <broker ID> <public hostname or IP> <list zookeeper public hostname or IP + port>
 
 set -e
 
@@ -40,9 +40,9 @@ sed \
 sleep 5 
 
 if [ $BROKER_ID -eq "1" ]; then
- echo "create /messaging" | ./distributedlog-service/bin/dlog zkshell zk1:2181
- echo "create /messaging/bookkeeper" | ./distributedlog-service/bin/dlog zkshell zk1:2181
- echo "create /messaging/bookkeeper/ledgers" | ./distributedlog-service/bin/dlog zkshell zk1:2181
+ echo "create /messaging" | ./distributedlog-service/bin/dlog zkshell $PUBLIC_ZOOKEEPER_ADDRESSES
+ echo "create /messaging/bookkeeper" | ./distributedlog-service/bin/dlog zkshell $PUBLIC_ZOOKEEPER_ADDRESSES 
+ echo "create /messaging/bookkeeper/ledgers" | ./distributedlog-service/bin/dlog zkshell $PUBLIC_ZOOKEEPER_ADDRESSES 
  echo "Metafirmatting bookie"
  export BOOKIE_CONF=$log_dir/distributedlog-service/conf/bookie-$BROKER_ID.conf 
  echo "Y" |  ./distributedlog-service/bin/dlog bkshell metaformat
@@ -56,7 +56,7 @@ SERVICE_PORT=3181 ./distributedlog-service/bin/dlog-daemon.sh start bookie -c $l
 
 
 if [ $BROKER_ID -eq "1" ]; then
-./distributedlog-service/bin/dlog admin bind -dlzr zk1:2181 -dlzw zk1:2181 -s zk1:2181 -bkzr zk1:2181 \
-      -l /messaging/bookkeeper/ledgers -i false -r true -c distributedlog://zk1:2181/messaging/distributedlog/mynamespace
+./distributedlog-service/bin/dlog admin bind -dlzr $PUBLIC_ZOOKEEPER_ADDRESSES -dlzw $PUBLIC_ZOOKEEPER_ADDRESSES -s $PUBLIC_ZOOKEEPER_ADDRESSES -bkzr $PUBLIC_ZOOKEEPER_ADDRESSES \
+      -l /messaging/bookkeeper/ledgers -i false -r true -c distributedlog://$PUBLIC_ZOOKEEPER_ADDRESSES/messaging/distributedlog/mynamespace
 fi
-WP_NAMESPACE=distributedlog://zk1:2181/messaging/distributedlog/mynamespace WP_SHARD_ID=$BROKER_ID WP_SERVICE_PORT=4181 WP_STATS_PORT=20001 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
+WP_NAMESPACE=distributedlog://$PUBLIC_ZOOKEEPER_ADDRESSES/messaging/distributedlog/mynamespace WP_SHARD_ID=$BROKER_ID WP_SERVICE_PORT=4181 WP_STATS_PORT=20001 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
