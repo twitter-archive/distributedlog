@@ -24,6 +24,23 @@ PUBLIC_ADDRESS=$2
 PUBLIC_ZOOKEEPER_ADDRESSES=$3
 JMX_PORT=$4
 
+DEPLOY_WP=false
+DEPLOY_BK=false
+
+if [ -z $DEPLOY_BOTH ] && [ ! -z $DEPLOY_BK ]; then
+  DEPLOY_BK=true
+fi
+
+if [ -z $DEPLOY_BOTH ] && [ ! -z $DEPLOY_WP ]; then
+  DEPLOY_WP=true
+fi
+
+if [ ! -z $DEPLOY_BOTH ]; then
+ DEPLOY_BK=true
+ DEPLOY_WP=true
+fi
+
+
 log_dir=/opt/distributedlog-trunk/dist/release
 cd $log_dir
 
@@ -39,24 +56,31 @@ sed \
 
 sleep 5 
 
-if [ $BROKER_ID -eq "1" ]; then
- echo "create /messaging" | ./distributedlog-service/bin/dlog zkshell $PUBLIC_ZOOKEEPER_ADDRESSES
- echo "create /messaging/bookkeeper" | ./distributedlog-service/bin/dlog zkshell $PUBLIC_ZOOKEEPER_ADDRESSES 
- echo "create /messaging/bookkeeper/ledgers" | ./distributedlog-service/bin/dlog zkshell $PUBLIC_ZOOKEEPER_ADDRESSES 
- echo "Metafirmatting bookie"
- export BOOKIE_CONF=$log_dir/distributedlog-service/conf/bookie-$BROKER_ID.conf 
- echo "Y" |  ./distributedlog-service/bin/dlog bkshell metaformat
+if [ $DEPLOY_BK == true ]; then
+ if [ $BROKER_ID -eq "1" ]; then
+  echo "create /messaging" | ./distributedlog-service/bin/dlog zkshell $PUBLIC_ZOOKEEPER_ADDRESSES
+  echo "create /messaging/bookkeeper" | ./distributedlog-service/bin/dlog zkshell $PUBLIC_ZOOKEEPER_ADDRESSES 
+  echo "create /messaging/bookkeeper/ledgers" | ./distributedlog-service/bin/dlog zkshell $PUBLIC_ZOOKEEPER_ADDRESSES 
+  echo "Metafirmatting bookie"
+  export BOOKIE_CONF=$log_dir/distributedlog-service/conf/bookie-$BROKER_ID.conf 
+  echo "Y" |  ./distributedlog-service/bin/dlog bkshell metaformat
+ fi
+
+ echo "Configuring bookkeeper"
+ BOOKIE_CONF=$log_dir/distributedlog-service/conf/bookie-$BROKER_ID.conf ./distributedlog-service/bin/dlog bkshell bookieformat
+
+ echo "Starting server"
+ SERVICE_PORT=3181 ./distributedlog-service/bin/dlog-daemon.sh start bookie -c $log_dir/distributedlog-service/conf/bookie-$BROKER_ID.conf
+
+
+ if [ $BROKER_ID -eq "1" ]; then
+ ./distributedlog-service/bin/dlog admin bind -dlzr $PUBLIC_ZOOKEEPER_ADDRESSES -dlzw $PUBLIC_ZOOKEEPER_ADDRESSES -s $PUBLIC_ZOOKEEPER_ADDRESSES -bkzr $PUBLIC_ZOOKEEPER_ADDRESSES \
+       -l /messaging/bookkeeper/ledgers -i false -r true -c distributedlog://$PUBLIC_ZOOKEEPER_ADDRESSES/messaging/distributedlog/mynamespace
+ fi
+
 fi
 
-echo "Configuring bookkeeper"
-BOOKIE_CONF=$log_dir/distributedlog-service/conf/bookie-$BROKER_ID.conf ./distributedlog-service/bin/dlog bkshell bookieformat
 
-echo "Starting server"
-SERVICE_PORT=3181 ./distributedlog-service/bin/dlog-daemon.sh start bookie -c $log_dir/distributedlog-service/conf/bookie-$BROKER_ID.conf
-
-
-if [ $BROKER_ID -eq "1" ]; then
-./distributedlog-service/bin/dlog admin bind -dlzr $PUBLIC_ZOOKEEPER_ADDRESSES -dlzw $PUBLIC_ZOOKEEPER_ADDRESSES -s $PUBLIC_ZOOKEEPER_ADDRESSES -bkzr $PUBLIC_ZOOKEEPER_ADDRESSES \
-      -l /messaging/bookkeeper/ledgers -i false -r true -c distributedlog://$PUBLIC_ZOOKEEPER_ADDRESSES/messaging/distributedlog/mynamespace
+if [ $DEPLOY_WP == true ]; then
+ WP_NAMESPACE=distributedlog://$PUBLIC_ZOOKEEPER_ADDRESSES/messaging/distributedlog/mynamespace WP_SHARD_ID=$BROKER_ID WP_SERVICE_PORT=4181 WP_STATS_PORT=20001 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
 fi
-WP_NAMESPACE=distributedlog://$PUBLIC_ZOOKEEPER_ADDRESSES/messaging/distributedlog/mynamespace WP_SHARD_ID=$BROKER_ID WP_SERVICE_PORT=4181 WP_STATS_PORT=20001 ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
