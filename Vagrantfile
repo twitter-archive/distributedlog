@@ -9,7 +9,7 @@ VAGRANTFILE_API_VERSION = "2"
 enable_dns = false
 
 enable_hostmanager = true
-num_zookeepers = 2
+num_zookeepers = 1
 num_hosts = 3
 ram_megabytes = 1280
 base_box = "ubuntu/trusty64"
