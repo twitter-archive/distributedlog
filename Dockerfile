@@ -1,6 +1,6 @@
 FROM java:8
 
-MAINTAINER Arvind Kandhare (arvind.kandhare@emc.com)
+MAINTAINER Arvind Kandhare [arvind.kandhare@emc.com]
 
 COPY . /opt/distributedlog-trunk/
 
