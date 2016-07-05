@@ -19,7 +19,7 @@ packages contain the binaries for running `distributedlog-service`, `distributed
 and `distributedlog-tutorials`.
 
 NOTE: we run following instructions from distributedlog source code after running `mvn clean install`.
-And assume `DLOG_HOME` is the directory of distributedlog source.
+And assume `DL_HOME` is the directory of distributedlog source.
 
 Zookeeper
 ---------
