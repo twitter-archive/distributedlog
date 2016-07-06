@@ -428,6 +428,7 @@ The write proxy will announce itself to the zookeeper path `.write_proxy` under 
 We could verify that the write proxy is running correctly by checking the zookeeper path or checking its stats port.
 
 ::
+    
     $ ./distributedlog-service/bin/dlog zkshell localhost:2181
     Connecting to localhost:2181
     Welcome to ZooKeeper!
