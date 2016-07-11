@@ -19,7 +19,7 @@ packages contain the binaries for running `distributedlog-service`, `distributed
 and `distributedlog-tutorials`.
 
 NOTE: we run following instructions from distributedlog source code after running `mvn clean install`.
-And assume `DLOG_HOME` is the directory of distributedlog source.
+And assume `DL_HOME` is the directory of distributedlog source.
 
 Zookeeper
 ---------
@@ -428,6 +428,7 @@ The write proxy will announce itself to the zookeeper path `.write_proxy` under 
 We could verify that the write proxy is running correctly by checking the zookeeper path or checking its stats port.
 
 ::
+    
     $ ./distributedlog-service/bin/dlog zkshell localhost:2181
     Connecting to localhost:2181
     Welcome to ZooKeeper!
@@ -484,7 +485,7 @@ Tail read from the 10 streams.
 
 ::
     
-    $ ./distributedlog-tutorials/distributedlog-basic/bin/runner run c.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace stream-0,stream-1,stream-2,stream-3,stream-4,stream-5,stream-6,stream-7,stream-8,stream-9,stream-10
+    $ ./distributedlog-tutorials/distributedlog-basic/bin/runner run com.twitter.distributedlog.basic.MultiReader distributedlog://127.0.0.1:2181/messaging/distributedlog/mynamespace stream-0,stream-1,stream-2,stream-3,stream-4,stream-5,stream-6,stream-7,stream-8,stream-9,stream-10
 
 
 Run record generator over some streams
