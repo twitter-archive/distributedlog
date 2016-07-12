@@ -27,6 +27,7 @@ cp -rf distributedlog-service/bin/* dist/release/distributedlog-service/bin
 cp -rf distributedlog-service/conf/* dist/release/distributedlog-service/conf
 cp -rf distributedlog-service/lib/* dist/release/distributedlog-service/lib
 cp -rf distributedlog-service/target/distributedlog-service-*.jar dist/release/distributedlog-service
+cp -rf vagrant dist/release/
 
 # build the distributedlog-benchmark
 cp -rf distributedlog-benchmark/bin/* dist/release/distributedlog-benchmark/bin

@@ -16,6 +16,9 @@
 # The number of milliseconds of each tick
 tickTime=2000
 
+# the port at which the clients will connect
+clientPort=2181
+
 # The number of ticks that the initial
 # synchronization phase can take
 initLimit=10

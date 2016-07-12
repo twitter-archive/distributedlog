@@ -1,4 +1,4 @@
-### How to write records to multiple streams using a load blanacer
+### How to write records to multiple streams using a load balancer
 
 If applications does not care about ordering and they just want use multiple streams to transform messages, it is easier
 to use a load balancer to balancing the writes among the multiple streams.
