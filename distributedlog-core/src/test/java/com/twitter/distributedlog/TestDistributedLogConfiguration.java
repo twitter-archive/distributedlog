@@ -102,4 +102,30 @@ public class TestDistributedLogConfiguration {
                 .setEnsemblePlacementDnsResolverClass(TestDNSResolver.class);
         assertEquals(TestDNSResolver.class, conf3.getEnsemblePlacementDnsResolverClass());
     }
+
+    @Test(timeout = 200000)
+    public void validateConfiguration(){
+        boolean exceptionThrown=false;
+        DistributedLogConfiguration conf = new DistributedLogConfiguration();
+        // validate default configuration
+        conf.validate();
+        // test invalid timeout, should throw exception
+        conf.setReadLACLongPollTimeout(conf.getBKClientReadTimeout() * 1000);
+        try {
+            conf.validate();
+        } catch (IllegalArgumentException e){
+            exceptionThrown=true;
+        }
+        assertTrue(exceptionThrown);
+        exceptionThrown=false;
+        conf.setReadLACLongPollTimeout(conf.getBKClientReadTimeout() * 1000 * 2);
+        try {
+            conf.validate();
+        } catch (IllegalArgumentException e){
+            exceptionThrown=true;
+        }
+        assertTrue(exceptionThrown);
+    }
+
+
 }

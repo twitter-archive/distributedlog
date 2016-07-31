@@ -51,6 +51,8 @@ public class BKDLUtils {
         throws IllegalArgumentException {
         if (null == conf) {
             throw new IllegalArgumentException("Incorrect Configuration");
+        } else {
+            conf.validate();
         }
         if ((null == uri) || (null == uri.getAuthority()) || (null == uri.getPath())) {
             throw new IllegalArgumentException("Incorrect ZK URI");

@@ -3336,5 +3336,14 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
         return this;
     }
 
+    /**
+     * Validate the configuration
+     */
+    public void validate() {
+        Preconditions.checkArgument(getBKClientReadTimeout() * 1000 > getReadLACLongPollTimeout(),
+            "Invalid timeout configuration : bkcReadTimeoutSeconds ("+getBKClientReadTimeout()+
+                ") should be longer than readLACLongPollTimeout ("+getReadLACLongPollTimeout()+")");
+    }
+
 
 }
