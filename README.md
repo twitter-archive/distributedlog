@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/twitter/distributedlog.svg?branch=master)](https://travis-ci.org/twitter/distributedlog)
+[![Build Status](https://travis-ci.org/apache/incubator-distributedlog.svg?branch=master)](https://travis-ci.org/apache/incubator-distributedlog)
 
 ## Overview
 
