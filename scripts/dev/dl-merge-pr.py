@@ -44,7 +44,7 @@ except ImportError:
 
 PROJECT_NAME = 'incubator-distributedlog'
 
-CAPITALIZED_PROJECT_NAME = 'distributedlog'.upper()
+CAPITALIZED_PROJECT_NAME = 'DL'
 
 # Location of the local git repository
 REPO_HOME = os.environ.get('{0}_HOME'.format(CAPITALIZED_PROJECT_NAME), os.getcwd())
@@ -84,8 +84,6 @@ TEMP_BRANCH_PREFIX = 'PR_TOOL'
 RELEASE_BRANCH_PREFIX = ''
 
 DEV_BRANCH_NAME = 'master'
-
-DEFAULT_FIX_VERSION = os.environ.get('DEFAULT_FIX_VERSION', '0.9.1.0')
 
 def get_json(url):
   """
@@ -162,7 +160,7 @@ def merge_pr(pr_num, target_ref, title, body, default_pr_reviewers, pr_repo_desc
   pr_branch_name = '{0}_MERGE_PR_{1}'.format(TEMP_BRANCH_PREFIX, pr_num)
   target_branch_name = '{0}_MERGE_PR_{1}_{2}'.format(TEMP_BRANCH_PREFIX, pr_num, target_ref.upper())
   run_cmd(['git', 'fetch', PR_REMOTE_NAME, 'pull/{0}/head:{1}'.format(pr_num, pr_branch_name)])
-  run_cmd(['git', 'fetch',PUSH_PR_REMOTE, '{0}:{1}'.format(target_ref, target_branch_name)])
+  run_cmd(['git', 'fetch', PUSH_PR_REMOTE, '{0}:{1}'.format(target_ref, target_branch_name)])
   run_cmd(['git', 'checkout', target_branch_name])
 
   had_conflicts = False
@@ -230,7 +228,9 @@ def merge_pr(pr_num, target_ref, title, body, default_pr_reviewers, pr_repo_desc
   close_line = 'Closes #{0} from {1}'.format(pr_num, pr_repo_desc)
   if should_list_commits:
     close_line += ' and squashes the following commits:'
-    merge_message_flags += ['-m', close_line]
+
+  # Append 'Closes #%s' commit message to close the PR
+  merge_message_flags += ['-m', close_line]
 
   if should_list_commits:
     merge_message_flags += ['-m', '\n'.join(commits)]
@@ -240,7 +240,7 @@ def merge_pr(pr_num, target_ref, title, body, default_pr_reviewers, pr_repo_desc
   continue_maybe('Merge complete (local ref {0}). Push to {1}?'.format(target_branch_name, PUSH_REMOTE_NAME))
 
   try:
-    run_cmd(['git', 'push', PUSH_REMOTE_NAME, target_branch_name, target_ref])
+    run_cmd(['git', 'push', PUSH_REMOTE_NAME, '{0}:{1}'.format(target_branch_name, target_ref)])
   except Exception as e:
     clean_up()
     fail('Exception while pushing: {0}'.format(e))
@@ -290,7 +290,6 @@ def cherry_pick(pr_num, merge_hash, default_branch):
 def fix_version_from_branch(branch, versions):
   # Note: Assumes this is a sorted (newest->oldest) list of un-released versions
   if branch == DEV_BRANCH_NAME:
-    versions = filter(lambda x: x == DEFAULT_FIX_VERSION, versions)
     if len(versions) > 0:
       return versions[0]
     else:
@@ -365,7 +364,7 @@ def resolve_jira_issues(title, merge_branches, comment):
   """
   Resolves a list of jira issues.
   """
-  jira_ids = re.findall('%s-[0-9]{3,6}' % CAPITALIZED_PROJECT_NAME, title)
+  jira_ids = re.findall('%s-[0-9]+' % CAPITALIZED_PROJECT_NAME, title)
 
   if len(jira_ids) == 0:
     print 'No JIRA issue found to update'
@@ -378,13 +377,13 @@ def standardize_jira_ref(text):
   Standardize the jira reference commit message prefix to "PROJECT_NAME-XXX: Issue"
 
   >>> standardize_jira_ref("%s-877: Script for generating patch for reviews" % CAPITALIZED_PROJECT_NAME)
-  'DISTRIBUTEDLOG-877: Script for generating patch for reviews'
+  'DL-877: Script for generating patch for reviews'
   """
   jira_refs = []
   components = []
 
   # Extract JIRA ref(s):
-  pattern = re.compile(r'(%s[-\s]*[0-9]{3,6})+' % CAPITALIZED_PROJECT_NAME, re.IGNORECASE)
+  pattern = re.compile(r'(%s[-\s]*[0-9]+)+' % CAPITALIZED_PROJECT_NAME, re.IGNORECASE)
   for ref in pattern.findall(text):
     # Add brackets, replace spaces with a dash, & convert to uppercase
     jira_refs.append(re.sub(r'\s+', '-', ref.upper()))
@@ -552,13 +551,13 @@ def main():
 
   if JIRA_IMPORTED:
     if JIRA_USERNAME and JIRA_PASSWORD:
-      jira_comment = '''Issue resolved by merging pull request {0}
-      [{1}/{2}]
+      jira_comment = '''Issue resolved by merging pull request %s
+      [%s/%s]
 
       {noformat}
-      {3}
+      %s
       {noformat}
-      '''.format(pr_num, GITHUB_BASE, pr_num, merge_commit_log)
+      ''' % (pr_num, GITHUB_BASE, pr_num, merge_commit_log)
       resolve_jira_issues(commit_title, merged_refs, jira_comment)
     else:
       print 'JIRA_USERNAME and JIRA_PASSWORD are not set'
