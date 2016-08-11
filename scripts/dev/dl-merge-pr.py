@@ -77,7 +77,7 @@ GITHUB_API_BASE = '{0}/repos/{1}/{2}'.format(GITHUB_API_URL, GITHUB_USER, PROJEC
 JIRA_BASE = 'https://issues.apache.org/jira/browse'
 JIRA_API_BASE = 'https://issues.apache.org/jira'
 
-PUSH_PR_REMOTE = 'git://git.apache.org/{0}.git'.format(PROJECT_NAME)
+PUSH_PR_REMOTE = 'https://git-wip-us.apache.org/repos/asf/{0}.git'.format(PROJECT_NAME)
 
 # Prefix added to temporary branches
 TEMP_BRANCH_PREFIX = 'PR_TOOL'
