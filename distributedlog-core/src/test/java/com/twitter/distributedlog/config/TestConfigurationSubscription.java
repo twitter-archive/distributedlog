@@ -42,6 +42,17 @@ import static org.junit.Assert.*;
 public class TestConfigurationSubscription {
     static final Logger LOG = LoggerFactory.getLogger(TestConfigurationSubscription.class);
 
+    /**
+     * Give FileChangedReloadingStrategy some time to start reloading
+     * Make sure now!=lastChecked
+     * {@link org.apache.commons.configuration.reloading.FileChangedReloadingStrategy#reloadingRequired()}
+     */
+    private void ensureConfigReloaded() throws InterruptedException {
+        // sleep 1 ms so that System.currentTimeMillis() !=
+        // lastChecked (the time we construct FileChangedReloadingStrategy
+        Thread.sleep(1);
+    }
+
     @Test(timeout = 60000)
     public void testReloadConfiguration() throws Exception {
         PropertiesWriter writer = new PropertiesWriter();
@@ -63,7 +74,8 @@ public class TestConfigurationSubscription {
         // add
         writer.setProperty("prop1", "1");
         writer.save();
-
+        // ensure the file change reloading event can be triggered
+        ensureConfigReloaded();
         // reload the config
         confSub.reload();
         assertNotNull(confHolder.get());
@@ -85,6 +97,8 @@ public class TestConfigurationSubscription {
         // add
         writer.setProperty("prop1", "1");
         writer.save();
+        // ensure the file change reloading event can be triggered
+        ensureConfigReloaded();
         mockScheduler.tick(100, TimeUnit.MILLISECONDS);
         assertEquals("1", conf.getProperty("prop1"));
 

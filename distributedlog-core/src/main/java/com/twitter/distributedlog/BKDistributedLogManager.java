@@ -969,6 +969,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 false,
                 dynConf.getDeserializeRecordSetOnReads(),
                 statsLogger);
+        pendingReaders.add(reader);
         return Future.value(reader);
     }
 
@@ -1095,6 +1096,7 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                 true,
                 dynConf.getDeserializeRecordSetOnReads(),
                 statsLogger);
+        pendingReaders.add(asyncReader);
         return new BKSyncLogReaderDLSN(conf, asyncReader, scheduler, fromTxnId);
     }
 

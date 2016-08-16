@@ -30,6 +30,19 @@ import static org.junit.Assert.*;
  */
 public class TestDynamicConfigurationFeatureProvider {
 
+    /**
+     * Make sure config is reloaded
+     *
+     * Give FileChangedReloadingStrategy some time to allow reloading
+     * Make sure now!=lastChecked
+     * {@link org.apache.commons.configuration.reloading.FileChangedReloadingStrategy#reloadingRequired()}
+     */
+    private void ensureConfigReloaded() throws InterruptedException {
+        // sleep 1 ms so that System.currentTimeMillis() !=
+        // lastChecked (the time we construct FileChangedReloadingStrategy
+        Thread.sleep(1);
+    }
+
     @Test(timeout = 60000)
     public void testLoadFeaturesFromBase() throws Exception {
         PropertiesWriter writer = new PropertiesWriter();
@@ -43,6 +56,7 @@ public class TestDynamicConfigurationFeatureProvider {
         DynamicConfigurationFeatureProvider provider =
                 new DynamicConfigurationFeatureProvider("", conf, NullStatsLogger.INSTANCE);
         provider.start();
+        ensureConfigReloaded();
 
         Feature feature1 = provider.getFeature("feature_1");
         assertTrue(feature1.isAvailable());
@@ -79,6 +93,7 @@ public class TestDynamicConfigurationFeatureProvider {
         DynamicConfigurationFeatureProvider provider =
                 new DynamicConfigurationFeatureProvider("", conf, NullStatsLogger.INSTANCE);
         provider.start();
+        ensureConfigReloaded();
 
         Feature feature1 = provider.getFeature("feature_1");
         assertTrue(feature1.isAvailable());
@@ -118,6 +133,7 @@ public class TestDynamicConfigurationFeatureProvider {
         DynamicConfigurationFeatureProvider provider =
                 new DynamicConfigurationFeatureProvider("", conf, NullStatsLogger.INSTANCE);
         provider.start();
+        ensureConfigReloaded();
 
         Feature feature1 = provider.getFeature("feature_1");
         assertTrue(feature1.isAvailable());

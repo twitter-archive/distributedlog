@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog;
 
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -33,13 +34,12 @@ import static org.junit.Assert.*;
 public class TestNonBlockingReads extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestNonBlockingReads.class);
 
-    // TODO: investigate why long poll read makes test flaky
     static {
         conf.setOutputBufferSize(0);
         conf.setImmediateFlushEnabled(true);
     }
 
-    @Test(timeout = 60000)
+    @Test(timeout = 100000)
     public void testNonBlockingRead() throws Exception {
         String name = "distrlog-non-blocking-reader";
         final DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -49,9 +49,10 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setReaderIdleWarnThresholdMillis(100);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+        ScheduledFuture writerClosedFuture = null;
         try {
             final Thread currentThread = Thread.currentThread();
-            executor.schedule(
+            writerClosedFuture = executor.schedule(
                     new Runnable() {
                         @Override
                         public void run() {
@@ -67,12 +68,16 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
             readNonBlocking(dlm, false);
             assertFalse(currentThread.isInterrupted());
         } finally {
+            if (writerClosedFuture != null){
+                // ensure writer.closeAndComplete is done before we close dlm
+                writerClosedFuture.get();
+            }
             executor.shutdown();
             dlm.close();
         }
     }
 
-    @Test(timeout = 60000)
+    @Test(timeout = 100000)
     public void testNonBlockingReadRecovery() throws Exception {
         String name = "distrlog-non-blocking-reader-recovery";
         final DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -81,9 +86,10 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setReadAheadMaxRecords(10);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+        ScheduledFuture writerClosedFuture = null;
         try {
             final Thread currentThread = Thread.currentThread();
-            executor.schedule(
+            writerClosedFuture = executor.schedule(
                     new Runnable() {
                         @Override
                         public void run() {
@@ -100,12 +106,16 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
             readNonBlocking(dlm, false);
             assertFalse(currentThread.isInterrupted());
         } finally {
+            if (writerClosedFuture != null){
+                // ensure writer.closeAndComplete is done before we close dlm
+                writerClosedFuture.get();
+            }
             executor.shutdown();
             dlm.close();
         }
     }
 
-    @Test(timeout = 60000)
+    @Test(timeout = 100000)
     public void testNonBlockingReadIdleError() throws Exception {
         String name = "distrlog-non-blocking-reader-error";
         final DistributedLogConfiguration confLocal = new DistributedLogConfiguration();
@@ -116,10 +126,10 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setReaderIdleErrorThresholdMillis(100);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
-
+        ScheduledFuture writerClosedFuture = null;
         try {
             final Thread currentThread = Thread.currentThread();
-            executor.schedule(
+            writerClosedFuture = executor.schedule(
                     new Runnable() {
                         @Override
                         public void run() {
@@ -141,6 +151,10 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
             assertTrue(exceptionEncountered);
             assertFalse(currentThread.isInterrupted());
         } finally {
+            if (writerClosedFuture != null){
+                // ensure writer.closeAndComplete is done before we close dlm
+                writerClosedFuture.get();
+            }
             executor.shutdown();
             dlm.close();
         }
@@ -157,10 +171,10 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
         confLocal.setReaderIdleErrorThresholdMillis(30000);
         final DistributedLogManager dlm = createNewDLM(confLocal, name);
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
-
+        ScheduledFuture writerClosedFuture = null;
         try {
             final Thread currentThread = Thread.currentThread();
-            executor.schedule(
+            writerClosedFuture = executor.schedule(
                     new Runnable() {
                         @Override
                         public void run() {
@@ -183,6 +197,10 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
             assertFalse(exceptionEncountered);
             assertFalse(currentThread.isInterrupted());
         } finally {
+            if (writerClosedFuture != null){
+                // ensure writer.closeAndComplete is done before we close dlm
+                writerClosedFuture.get();
+            }
             executor.shutdown();
             dlm.close();
         }

@@ -885,8 +885,11 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         }
     }
 
+    /**
+     * Flaky test fixed: readers need to be added to the pendingReaders
+     * @throws Exception
+     */
     @Test(timeout = 300000)
-    @DistributedLogAnnotations.FlakyTest
     public void testSimpleAsyncReadWriteSimulateErrors() throws Exception {
         String name = runtime.getMethodName();
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();

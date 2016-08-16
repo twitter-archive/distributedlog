@@ -742,12 +742,14 @@ public class TestDistributedLogService extends TestDistributedLogBase {
                     StatusCode.WRITE_EXCEPTION == response.getHeader().getCode() ||
                     StatusCode.WRITE_CANCELLED_EXCEPTION == response.getHeader().getCode());
         }
-        assertTrue("There should be no streams in the cache",
-                streamManager.getCachedStreams().isEmpty());
+        // acquired streams should all been removed after we close them
         assertTrue("There should be no streams in the acquired cache",
-                streamManager.getAcquiredStreams().isEmpty());
-
+            streamManager.getAcquiredStreams().isEmpty());
         localService.shutdown();
+        // cached streams wouldn't be removed immediately after streams are closed
+        // but they should be removed after we shutdown the service
+        assertTrue("There should be no streams in the cache after shutting down the service",
+            streamManager.getCachedStreams().isEmpty());
     }
 
     @Test(timeout = 60000)
