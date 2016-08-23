@@ -267,6 +267,8 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     public static final int BKDL_LOGSEGMENT_ROLLING_CONCURRENCY_DEFAULT = 1;
 
     // Lock Settings
+    public static final String BKDL_WRITE_LOCK_ENABLED = "writeLockEnabled";
+    public static final boolean BKDL_WRITE_LOCK_ENABLED_DEFAULT = true;
     public static final String BKDL_LOCK_TIMEOUT = "lockTimeoutSeconds";
     public static final long BKDL_LOCK_TIMEOUT_DEFAULT = 30;
     public static final String BKDL_LOCK_REACQUIRE_TIMEOUT = "lockReacquireTimeoutSeconds";
@@ -2037,6 +2039,30 @@ public class DistributedLogConfiguration extends CompositeConfiguration {
     //
     // Lock Settings
     //
+
+    /**
+     * Is lock enabled when opening a writer to write a stream?
+     * <p> We don't generally require a lock to write a stream to guarantee correctness. The lock
+     * is more on tracking ownerships. The built-in fencing mechanism is used guarantee correctness
+     * during stream owner failover. It is okay to disable lock if your application knows which nodes
+     * have to write which streams.
+     *
+     * @return true if lock is enabled, otherwise false.
+     */
+    public boolean isWriteLockEnabled() {
+        return this.getBoolean(BKDL_WRITE_LOCK_ENABLED, BKDL_WRITE_LOCK_ENABLED_DEFAULT);
+    }
+
+    /**
+     * Enable lock for opening a writer to write a stream?
+     *
+     * @param enabled flag to enable or disable lock for opening a writer to write a stream.
+     * @return distributedlog configuration.
+     */
+    public DistributedLogConfiguration setWriteLockEnabled(boolean enabled) {
+        setProperty(BKDL_WRITE_LOCK_ENABLED, enabled);
+        return this;
+    }
 
     /**
      * Get lock timeout in milliseconds. The default value is 30.

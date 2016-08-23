@@ -34,10 +34,8 @@ import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.BindException;
 import java.net.URI;
 import java.util.ArrayList;
@@ -118,38 +116,17 @@ public class LocalDLMEmulator {
                 conf = (ServerConfiguration) DEFAULT_SERVER_CONFIGURATION.clone();
                 conf.setZkTimeout(zkTimeoutSec * 1000);
             }
+            ServerConfiguration newConf = new ServerConfiguration();
+            newConf.loadConf(conf);
+            newConf.setAllowLoopback(true);
 
             return new LocalDLMEmulator(numBookies, shouldStartZK, zkHost, zkPort,
-                initialBookiePort, zkTimeoutSec, conf);
+                initialBookiePort, zkTimeoutSec, newConf);
         }
     }
 
     public static Builder newBuilder() {
         return new Builder();
-    }
-
-    public LocalDLMEmulator(final int numBookies) throws Exception {
-        this(numBookies, true, DEFAULT_ZK_HOST, DEFAULT_ZK_PORT, DEFAULT_BOOKIE_INITIAL_PORT);
-    }
-
-    public LocalDLMEmulator(final int numBookies, final String zkHost, final int zkPort) throws Exception {
-        this(numBookies, false, zkHost, zkPort, DEFAULT_BOOKIE_INITIAL_PORT);
-    }
-
-    public LocalDLMEmulator(final int numBookies, final String zkHost, final int zkPort, final ServerConfiguration serverConf) throws Exception {
-        this(numBookies, false, zkHost, zkPort, DEFAULT_BOOKIE_INITIAL_PORT, DEFAULT_ZK_TIMEOUT_SEC, serverConf);
-    }
-
-    public LocalDLMEmulator(final int numBookies, final int initialBookiePort) throws Exception {
-        this(numBookies, true, DEFAULT_ZK_HOST, DEFAULT_ZK_PORT, initialBookiePort);
-    }
-
-    public LocalDLMEmulator(final int numBookies, final String zkHost, final int zkPort, final int initialBookiePort) throws Exception {
-        this(numBookies, false, zkHost, zkPort, initialBookiePort);
-    }
-
-    private LocalDLMEmulator(final int numBookies, final boolean shouldStartZK, final String zkHost, final int zkPort, final int initialBookiePort) throws Exception {
-        this(numBookies, shouldStartZK, zkHost, zkPort, initialBookiePort, DEFAULT_ZK_TIMEOUT_SEC, new ServerConfiguration());
     }
 
     private LocalDLMEmulator(final int numBookies, final boolean shouldStartZK, final String zkHost, final int zkPort, final int initialBookiePort, final int zkTimeoutSec, final ServerConfiguration serverConf) throws Exception {
@@ -162,7 +139,9 @@ public class LocalDLMEmulator {
         this.bkStartupThread = new Thread() {
             public void run() {
                 try {
+                    LOG.info("Starting {} bookies : allowLoopback = {}", numBookies, serverConf.getAllowLoopback());
                     LocalBookKeeper.startLocalBookies(zkHost, zkPort, numBookies, shouldStartZK, initialBookiePort, serverConf);
+                    LOG.info("{} bookies are started.");
                 } catch (InterruptedException e) {
                     // go away quietly
                 } catch (Exception e) {
@@ -205,6 +184,7 @@ public class LocalDLMEmulator {
         ServerConfiguration bookieConf = new ServerConfiguration();
         bookieConf.setZkTimeout(zkTimeoutSec * 1000);
         bookieConf.setBookiePort(0);
+        bookieConf.setAllowLoopback(true);
         File tmpdir = File.createTempFile("bookie" + UUID.randomUUID() + "_",
             "test");
         if (!tmpdir.delete()) {

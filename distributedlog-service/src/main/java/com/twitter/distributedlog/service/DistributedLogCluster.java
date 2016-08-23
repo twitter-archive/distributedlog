@@ -30,7 +30,6 @@ import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.LocalBookKeeper;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.tuple.Pair;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -268,7 +267,13 @@ public class DistributedLogCluster {
         } else {
             this.zks = null;
         }
-        this.dlmEmulator = new LocalDLMEmulator(numBookies, zkServers, zkPort, bkConf);
+        this.dlmEmulator = LocalDLMEmulator.newBuilder()
+                .numBookies(numBookies)
+                .zkHost(zkServers)
+                .zkPort(zkPort)
+                .serverConf(bkConf)
+                .shouldStartZK(false)
+                .build();
         this.shouldStartProxy = shouldStartProxy;
         this.proxyPort = proxyPort;
     }

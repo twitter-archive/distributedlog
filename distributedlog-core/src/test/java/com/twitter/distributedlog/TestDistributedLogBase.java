@@ -37,7 +37,6 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,17 +71,20 @@ public class TestDistributedLogBase {
 
     @BeforeClass
     public static void setupCluster() throws Exception {
-        boolean success = false;
-        int retries = 0;
         File zkTmpDir = IOUtils.createTempDir("zookeeper", "distrlog");
         tmpDirs.add(zkTmpDir);
         Pair<ZooKeeperServerShim, Integer> serverAndPort = LocalDLMEmulator.runZookeeperOnAnyPort(zkTmpDir);
         zks = serverAndPort.getLeft();
         zkPort = serverAndPort.getRight();
-        bkutil = new LocalDLMEmulator(numBookies, "127.0.0.1", zkPort, DLMTestUtil.loadTestBkConf());
+        bkutil = LocalDLMEmulator.newBuilder()
+                .numBookies(numBookies)
+                .zkHost("127.0.0.1")
+                .zkPort(zkPort)
+                .serverConf(DLMTestUtil.loadTestBkConf())
+                .shouldStartZK(false)
+                .build();
         bkutil.start();
         zkServers = "127.0.0.1:" + zkPort;
-        success = true;
     }
 
     @AfterClass

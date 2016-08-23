@@ -110,7 +110,7 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final int regionId;
     protected volatile boolean closed = false;
     protected final RollingPolicy rollingPolicy;
-    protected Future<DistributedLock> lockFuture = null;
+    protected Future<? extends DistributedLock> lockFuture = null;
     protected final PermitLimiter writeLimiter;
     protected final FeatureProvider featureProvider;
     protected final DynamicDistributedLogConfiguration dynConf;
@@ -337,7 +337,7 @@ class BKLogWriteHandler extends BKLogHandler {
      *
      * @return future represents the lock result
      */
-    Future<DistributedLock> lockHandler() {
+    Future<? extends DistributedLock> lockHandler() {
         if (null != lockFuture) {
             return lockFuture;
         }

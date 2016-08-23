@@ -30,7 +30,9 @@ import com.twitter.distributedlog.exceptions.LockingException;
 import com.twitter.distributedlog.exceptions.LogNotFoundException;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.injector.AsyncFailureInjector;
+import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.distributedlog.lock.SessionLockFactory;
+import com.twitter.distributedlog.lock.ZKDistributedLock;
 import com.twitter.distributedlog.lock.ZKSessionLockFactory;
 import com.twitter.distributedlog.logsegment.LogSegmentFilter;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
@@ -39,7 +41,6 @@ import com.twitter.distributedlog.stats.BroadCastStatsLogger;
 import com.twitter.distributedlog.stats.ReadAheadExceptionsLogger;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.OrderedScheduler;
-import com.twitter.distributedlog.lock.DistributedLock;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.ExceptionalFunction;
 import com.twitter.util.ExceptionalFunction0;
@@ -98,7 +99,7 @@ import scala.runtime.BoxedUnit;
  * becoming idle.
  * </ul>
  * <h4>Read Lock</h4>
- * All read lock related stats are exposed under scope `read_lock`. See {@link DistributedLock}
+ * All read lock related stats are exposed under scope `read_lock`. See {@link ZKDistributedLock}
  * for detail stats.
  */
 class BKLogReadHandler extends BKLogHandler {
@@ -216,7 +217,7 @@ class BKLogReadHandler extends BKLogHandler {
                 public DistributedLock applyE() throws IOException {
                     // Unfortunately this has a blocking call which we should not execute on the
                     // ZK completion thread
-                    BKLogReadHandler.this.readLock = new DistributedLock(
+                    BKLogReadHandler.this.readLock = new ZKDistributedLock(
                             lockStateExecutor,
                             lockFactory,
                             readLockPath,
@@ -247,7 +248,7 @@ class BKLogReadHandler extends BKLogHandler {
      * executor service thread.
      */
     Future<Void> acquireLockOnExecutorThread(DistributedLock lock) throws LockingException {
-        final Future<DistributedLock> acquireFuture = lock.asyncAcquire();
+        final Future<? extends DistributedLock> acquireFuture = lock.asyncAcquire();
 
         // The future we return must be satisfied on an executor service thread. If we simply
         // return the future returned by asyncAcquire, user callbacks may end up running in

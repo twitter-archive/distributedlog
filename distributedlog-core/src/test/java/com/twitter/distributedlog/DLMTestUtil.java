@@ -536,6 +536,7 @@ public class DLMTestUtil {
         } catch (org.apache.commons.configuration.ConfigurationException ex) {
             LOG.warn("loading conf failed", ex);
         }
+        conf.setAllowLoopback(true);
         return conf;
     }
 

@@ -36,8 +36,10 @@ import com.twitter.distributedlog.impl.ZKLogSegmentMetadataStore;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForReader;
 import com.twitter.distributedlog.impl.metadata.ZKLogMetadataForWriter;
 import com.twitter.distributedlog.io.AsyncCloseable;
-import com.twitter.distributedlog.lock.SessionLockFactory;
 import com.twitter.distributedlog.lock.DistributedLock;
+import com.twitter.distributedlog.lock.NopDistributedLock;
+import com.twitter.distributedlog.lock.SessionLockFactory;
+import com.twitter.distributedlog.lock.ZKDistributedLock;
 import com.twitter.distributedlog.lock.ZKSessionLockFactory;
 import com.twitter.distributedlog.logsegment.LogSegmentMetadataStore;
 import com.twitter.distributedlog.metadata.BKDLConfig;
@@ -100,9 +102,9 @@ import java.util.concurrent.TimeUnit;
  * scope `writer_future_pool`. See {@link MonitoredFuturePool} for detail stats.
  * <li> `reader_future_pool/*`: metrics about the future pools that used by readers are exposed under
  * scope `reader_future_pool`. See {@link MonitoredFuturePool} for detail stats.
- * <li> `lock/*`: metrics about the locks used by writers. See {@link DistributedLock} for detail
+ * <li> `lock/*`: metrics about the locks used by writers. See {@link ZKDistributedLock} for detail
  * stats.
- * <li> `read_lock/*`: metrics about the locks used by readers. See {@link DistributedLock} for
+ * <li> `read_lock/*`: metrics about the locks used by readers. See {@link ZKDistributedLock} for
  * detail stats.
  * <li> `logsegments/*`: metrics about basic operations on log segments. See {@link BKLogHandler} for details.
  * <li> `segments/*`: metrics about write operations on log segments. See {@link BKLogWriteHandler} for details.
@@ -604,12 +606,17 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
                                     final Promise<BKLogWriteHandler> createPromise) {
         OrderedScheduler lockStateExecutor = getLockStateExecutor(true);
         // Build the locks
-        DistributedLock lock = new DistributedLock(
-                lockStateExecutor,
-                getLockFactory(true),
-                logMetadata.getLockPath(),
-                conf.getLockTimeoutMilliSeconds(),
-                statsLogger);
+        DistributedLock lock;
+        if (conf.isWriteLockEnabled()) {
+            lock = new ZKDistributedLock(
+                    lockStateExecutor,
+                    getLockFactory(true),
+                    logMetadata.getLockPath(),
+                    conf.getLockTimeoutMilliSeconds(),
+                    statsLogger);
+        } else {
+            lock = NopDistributedLock.INSTANCE;
+        }
         // Build the ledger allocator
         LedgerAllocator allocator;
         try {

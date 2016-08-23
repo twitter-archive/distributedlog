@@ -70,7 +70,7 @@ public interface SessionLock {
      * <p>
      * <i>tryLock</i> here is effectively the combination of following asynchronous calls.
      * <pre>
-     *     DistributedLock lock = ...;
+     *     ZKDistributedLock lock = ...;
      *     Future<LockWaiter> attemptFuture = lock.asyncTryLock(...);
      *
      *     boolean acquired = waiter.waitForAcquireQuietly();
