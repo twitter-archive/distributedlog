@@ -21,12 +21,12 @@
   <parent>
     <artifactId>distributedlog</artifactId>
     <groupId>com.twitter</groupId>
-    <version>0.3.51-SNAPSHOT</version>
+    <version>0.4.0-incubating-SNAPSHOT</version>
     <relativePath>../..</relativePath>
   </parent>
   <groupId>com.twitter</groupId>
   <artifactId>distributedlog-messaging</artifactId>
-  <name>DistributedLog Messaging Tutorial</name>
+  <name>Apache DistributedLog :: Tutorials :: Messaging Tutorial</name>
   <url>http://maven.apache.org</url>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
