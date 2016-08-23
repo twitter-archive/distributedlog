@@ -511,9 +511,11 @@ def main():
 
   # Merged pull requests don't appear as merged in the GitHub API;
   # Instead, they're closed by asfgit.
-  merge_commits = [
-    e for e in pr_events if e['actor']['login'] == 'asfgit' and e['event'] == 'closed'
-  ]
+  merge_commits = []
+  for e in pr_events:
+    if e['event'] == 'closed':
+      if e['actor'] is not None and e['actor']['login'] == 'asfgit':
+        merge_commits.append(e)
 
   if merge_commits:
     merge_hash = merge_commits[0]['commit_id']
