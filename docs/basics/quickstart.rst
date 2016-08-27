@@ -80,6 +80,11 @@ Now, lets start a write proxy server that serves writes to distributedlog namesp
     
     > ./distributedlog-service/bin/dlog-daemon.sh start writeproxy -p 8000 --shard-id 1 -sp 8001 -u distributedlog://127.0.0.1:7000/messaging/my_namespace -mx -c `pwd`/distributedlog-service/conf/distributedlog_proxy.conf
 
+From 0.3.51-RC1 and onwards, use the below command to start the write proxy
+
+::
+
+   > WP_SHARD_ID=1 WP_SERVICE_PORT=8000 WP_STATS_PORT=8001 WP_NAMESPACE='distributedlog://127.0.0.1:7000/messaging/my_namespace' ./distributedlog-service/bin/dlog-daemon.sh start writeproxy
 
 Step 6: Tail reading records
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
