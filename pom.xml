@@ -123,8 +123,9 @@
         <artifactId>maven-assembly-plugin</artifactId>
         <version>2.2.1</version>
         <configuration>
+	  <tarLongFileMode>gnu</tarLongFileMode>
           <descriptors>
-            <descriptor>src/assemble/bin.xml</descriptor>
+            <descriptor>src/assemble/src.xml</descriptor>
           </descriptors>
         </configuration>
       </plugin>

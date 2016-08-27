@@ -119,7 +119,7 @@
         <version>2.2.1</version>
         <configuration>
           <descriptors>
-            <descriptor>src/assemble/bin.xml</descriptor>
+            <descriptor>../src/assemble/bin.xml</descriptor>
           </descriptors>
         </configuration>
         <executions>

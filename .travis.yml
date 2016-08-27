@@ -27,4 +27,4 @@ cache:
     - $HOME/.m2
 
 script:
-  - mvn clean verify test
+  - mvn clean apache-rat:check package
