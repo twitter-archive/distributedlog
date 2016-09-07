@@ -265,8 +265,8 @@ public class Benchmarker {
     }
 
     Worker runWriter() {
-        Preconditions.checkArgument(!finagleNames.isEmpty() || !serversetPaths.isEmpty(),
-                "either serverset paths or finagle-names required");
+        Preconditions.checkArgument(!finagleNames.isEmpty() || !serversetPaths.isEmpty() || null != dlUri,
+                "either serverset paths, finagle-names or uri required");
         Preconditions.checkArgument(msgSize > 0, "messagesize must be greater than 0");
         Preconditions.checkArgument(rate > 0, "rate must be greater than 0");
         Preconditions.checkArgument(maxRate >= rate, "max rate must be greater than rate");
@@ -278,6 +278,7 @@ public class Benchmarker {
                 new ShiftableRateLimiter(rate, maxRate, changeRate, changeRateSeconds, TimeUnit.SECONDS);
         return createWriteWorker(
                 streamPrefix,
+                dlUri,
                 null == startStreamId ? shardId * numStreams : startStreamId,
                 null == endStreamId ? (shardId + 1) * numStreams : endStreamId,
                 rateLimiter,
@@ -299,6 +300,7 @@ public class Benchmarker {
 
     protected WriterWorker createWriteWorker(
             String streamPrefix,
+            URI uri,
             int startStreamId,
             int endStreamId,
             ShiftableRateLimiter rateLimiter,
@@ -318,6 +320,7 @@ public class Benchmarker {
             boolean enableBatching) {
         return new WriterWorker(
                 streamPrefix,
+                uri,
                 startStreamId,
                 endStreamId,
                 rateLimiter,
@@ -360,8 +363,8 @@ public class Benchmarker {
     }
 
     Worker runReader() throws IOException {
-        Preconditions.checkArgument(!finagleNames.isEmpty() || !serversetPaths.isEmpty(),
-                "either serverset paths or finagle-names required");
+        Preconditions.checkArgument(!finagleNames.isEmpty() || !serversetPaths.isEmpty() || null != dlUri,
+                "either serverset paths, finagle-names or dlUri required");
         Preconditions.checkArgument(concurrency > 0, "concurrency must be greater than 0");
         Preconditions.checkArgument(truncationInterval > 0, "truncation interval should be greater than 0");
         return runReaderInternal(serversetPaths, finagleNames, truncationInterval);

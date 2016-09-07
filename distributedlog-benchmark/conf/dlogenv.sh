@@ -76,9 +76,6 @@ CHANGE_RATE=100
 # Rate change interval, in seconds
 CHANGE_RATE_INTERVAL=300
 
-# DL Write Proxy Finagle Name
-DL_WP_FINAGLE_NAME='zk!127.0.0.1:2181!/messaging/distributedlog/mynamespace/.write_proxy'
-
 ##########
 # Reader 
 ##########

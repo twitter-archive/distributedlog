@@ -182,7 +182,6 @@ elif [ $COMMAND == "write" ]; then
     --max-rate ${MAX_RATE} \\
     --change-rate ${CHANGE_RATE} \\
     --change-interval ${CHANGE_RATE_INTERVAL} \\
-    --finagle-name ${DL_WP_FINAGLE_NAME}
     """
     BENCH_ARGS="${BENCH_ARGS} \\ ${BENCH_WRITE_ARGS} \\ --mode write \\"
     exec java $OPTS $JMX_ARGS com.twitter.distributedlog.benchmark.Benchmarker $BENCH_ARGS $@
@@ -191,7 +190,6 @@ elif [ $COMMAND == "read" ]; then
     --readers-per-stream ${NUM_READERS_PER_STREAM} \\
     --max-stream-id ${MAX_STREAM_ID} \\
     --truncation-interval ${TRUNCATION_INTERVAL} \\
-    --finagle-name ${DL_WP_FINAGLE_NAME}
     """
     BENCH_ARGS="${BENCH_ARGS} \\ ${BENCH_READ_ARGS} \\ --mode read \\"
     exec java $OPTS $JMX_ARGS com.twitter.distributedlog.benchmark.Benchmarker $BENCH_ARGS $@

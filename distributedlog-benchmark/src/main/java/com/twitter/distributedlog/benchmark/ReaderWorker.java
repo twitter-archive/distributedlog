@@ -254,7 +254,7 @@ public class ReaderWorker implements Worker {
 
                 builder = builder.finagleNameStrs(local, remotes);
                 LOG.info("Initialized distributedlog client for truncation @ {}.", finagleNames);
-            } else {
+            } else if (serverSets.length != 0){
                 ServerSet local = this.serverSets[0].getServerSet();
                 ServerSet[] remotes = new ServerSet[this.serverSets.length - 1];
                 for (int i = 1; i < serverSets.length; i++) {
@@ -263,6 +263,9 @@ public class ReaderWorker implements Worker {
 
                 builder = builder.serverSets(local, remotes);
                 LOG.info("Initialized distributedlog client for truncation @ {}.", serverSetPaths);
+            } else {
+                builder = builder.uri(uri);
+                LOG.info("Initialized distributedlog client for namespace {}", uri);
             }
             dlc = builder.build();
         } else {

@@ -65,6 +65,7 @@ public class WriterWorker implements Worker {
     final int hostConnectionLimit;
     final ExecutorService executorService;
     final ShiftableRateLimiter rateLimiter;
+    final URI dlUri;
     final DLZkServerSet[] serverSets;
     final List<String> finagleNames;
     final Random random;
@@ -86,6 +87,7 @@ public class WriterWorker implements Worker {
     final StatsLogger dlErrorCodeLogger;
 
     public WriterWorker(String streamPrefix,
+                        URI uri,
                         int startStreamId,
                         int endStreamId,
                         ShiftableRateLimiter rateLimiter,
@@ -106,6 +108,7 @@ public class WriterWorker implements Worker {
         Preconditions.checkArgument(startStreamId <= endStreamId);
         Preconditions.checkArgument(!finagleNames.isEmpty() || !serverSetPaths.isEmpty());
         this.streamPrefix = streamPrefix;
+        this.dlUri = uri;
         this.startStreamId = startStreamId;
         this.endStreamId = endStreamId;
         this.rateLimiter = rateLimiter;
@@ -184,19 +187,21 @@ public class WriterWorker implements Worker {
             .handshakeTracing(true)
             .name("writer");
 
-        if (serverSets.length == 0) {
+        if (!finagleNames.isEmpty()) {
             String local = finagleNames.get(0);
             String[] remotes = new String[finagleNames.size() - 1];
             finagleNames.subList(1, finagleNames.size()).toArray(remotes);
 
             builder = builder.finagleNameStrs(local, remotes);
-        } else {
+        } else if (serverSets.length != 0){
             ServerSet local = serverSets[0].getServerSet();
             ServerSet[] remotes = new ServerSet[serverSets.length - 1];
             for (int i = 1; i < serverSets.length; i++) {
                 remotes[i-1] = serverSets[i].getServerSet();
             }
             builder = builder.serverSets(local, remotes);
+        } else {
+            builder = builder.uri(dlUri);
         }
 
         return builder.build();

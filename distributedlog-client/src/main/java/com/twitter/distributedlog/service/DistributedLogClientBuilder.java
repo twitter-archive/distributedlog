@@ -32,10 +32,15 @@ import com.twitter.finagle.builder.ClientBuilder;
 import com.twitter.finagle.stats.NullStatsReceiver;
 import com.twitter.finagle.stats.StatsReceiver;
 import com.twitter.finagle.thrift.ClientId;
+import org.apache.commons.lang.StringUtils;
 
 import java.net.SocketAddress;
+import java.net.URI;
+import java.util.Random;
 
 public final class DistributedLogClientBuilder {
+
+    private static final Random random = new Random(System.currentTimeMillis());
 
     private String _name = null;
     private ClientId _clientId = null;
@@ -167,6 +172,29 @@ public final class DistributedLogClientBuilder {
                 .routingServiceBuilders(builders)
                 .resolver(_regionResolver);
         newBuilder._enableRegionStats = remotes.length > 0;
+        return newBuilder;
+    }
+
+    /**
+     * URI to access proxy services. Assuming the write proxies are announced under `.write_proxy` of
+     * the provided namespace uri.
+     * <p>
+     * The builder will convert the dl uri (e.g. distributedlog://{zkserver}/path/to/namespace) to
+     * zookeeper serverset based finagle name str (`zk!{zkserver}!/path/to/namespace/.write_proxy`)
+     *
+     * @param uri namespace uri to access the serverset of write proxies
+     * @return distributedlog builder
+     */
+    public DistributedLogClientBuilder uri(URI uri) {
+        DistributedLogClientBuilder newBuilder = newBuilder(this);
+        String zkServers = uri.getAuthority().replace(";", ",");
+        String[] zkServerList = StringUtils.split(zkServers, ',');
+        String finagleNameStr = String.format(
+                "zk!%s!%s/.write_proxy",
+                zkServerList[random.nextInt(zkServerList.length)], // zk server
+                uri.getPath());
+        newBuilder._routingServiceBuilder = RoutingUtils.buildRoutingService(finagleNameStr);
+        newBuilder._enableRegionStats = false;
         return newBuilder;
     }
 

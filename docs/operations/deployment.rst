@@ -464,9 +464,7 @@ Write Proxy Naming
 ++++++++++++++++++
 
 The `dlog-daemon.sh` script starts the write proxy by announcing it to the `.write_proxy` path under
-the dl namespace. So you could use `zk!<zkservers>!/<namespace_path>/.write_proxy` as the finagle name
-to access the write proxy cluster. It is `zk!127.0.0.1:2181!/messaging/distributedlog/mynamespace/.write_proxy`
-in the above example.
+the dl namespace. So you could use uri in the distributedlog client builder to access the write proxy cluster.
 
 Verify the setup
 ++++++++++++++++
