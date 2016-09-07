@@ -18,9 +18,11 @@
 package com.twitter.distributedlog.feature;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.annotations.DistributedLogAnnotations;
 import com.twitter.distributedlog.config.PropertiesWriter;
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
@@ -74,6 +76,11 @@ public class TestDynamicConfigurationFeatureProvider {
         provider.stop();
     }
 
+    /**
+     * {@link https://issues.apache.org/jira/browse/DL-40}
+     */
+    @DistributedLogAnnotations.FlakyTest
+    @Ignore
     @Test(timeout = 60000)
     public void testLoadFeaturesFromOverlay() throws Exception {
         PropertiesWriter writer = new PropertiesWriter();

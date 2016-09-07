@@ -22,9 +22,16 @@ matrix:
     - os: osx
       osx_image: xcode8
 
+before_install:
+  - echo "MAVEN_OPTS='-Xmx3072m -XX:MaxPermSize=512m'" > ~/.mavenrc
+
+install:
+  - travis_retry mvn -B install clean -U -DskipTests=true
+
+script:
+  - travis_retry mvn clean apache-rat:check
+  - travis_wait 60 mvn package
+
 cache:
   directories:
     - $HOME/.m2
-
-script:
-  - mvn clean apache-rat:check package

@@ -19,6 +19,7 @@ package com.twitter.distributedlog.bk;
 
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
+import com.twitter.distributedlog.annotations.DistributedLogAnnotations;
 import com.twitter.distributedlog.bk.SimpleLedgerAllocator.AllocationException;
 import com.twitter.distributedlog.bk.SimpleLedgerAllocator.Phase;
 import com.twitter.distributedlog.DistributedLogConfiguration;
@@ -45,6 +46,7 @@ import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.data.Stat;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -121,6 +123,11 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
         return FutureUtils.result(SimpleLedgerAllocator.of(allocationPath, null, newQuorumConfigProvider(conf), zkc, bkc));
     }
 
+    /**
+     * {@link https://issues.apache.org/jira/browse/DL-43}
+     */
+    @DistributedLogAnnotations.FlakyTest
+    @Ignore
     @Test(timeout = 60000)
     public void testAllocation() throws Exception {
         String allocationPath = "/allocation1";
@@ -298,6 +305,11 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
                 dlConf.getBKDigestPW().getBytes(UTF_8));
     }
 
+    /**
+     * {@link https://issues.apache.org/jira/browse/DL-26}
+     */
+    @DistributedLogAnnotations.FlakyTest
+    @Ignore
     @Test(timeout = 60000)
     public void testCloseAllocatorAfterConfirm() throws Exception {
         String allocationPath = "/allocation2";

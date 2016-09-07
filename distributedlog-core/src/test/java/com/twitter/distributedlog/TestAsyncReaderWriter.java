@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
+import com.twitter.distributedlog.annotations.DistributedLogAnnotations;
 import com.twitter.distributedlog.config.ConcurrentBaseConfiguration;
 import com.twitter.distributedlog.config.ConcurrentConstConfiguration;
 import com.twitter.distributedlog.config.DynamicDistributedLogConfiguration;
@@ -44,6 +45,7 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -808,7 +810,10 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
 
     /**
      * Test Case: starting reading when the streams don't exist.
+     * {@link https://issues.apache.org/jira/browse/DL-42}
      */
+    @DistributedLogAnnotations.FlakyTest
+    @Ignore
     @Test(timeout = 120000)
     public void testSimpleAsyncReadWriteStartEmptyFactory() throws Exception {
         int count = 50;
@@ -1478,7 +1483,9 @@ public class TestAsyncReaderWriter extends TestDistributedLogBase {
         dlm.close();
     }
 
-    @Test(timeout = 10000)
+    @DistributedLogAnnotations.FlakyTest
+    @Ignore
+    @Test(timeout = 60000)
     public void testAsyncReadMissingZKNotification() throws Exception {
         String name = "distrlog-async-reader-missing-zk-notification";
         DistributedLogConfiguration confLocal = new DistributedLogConfiguration();

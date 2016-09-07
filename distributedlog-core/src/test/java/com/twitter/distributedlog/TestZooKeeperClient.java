@@ -19,6 +19,7 @@ package com.twitter.distributedlog;
 
 import com.twitter.distributedlog.ZooKeeperClient.Credentials;
 import com.twitter.distributedlog.ZooKeeperClient.DigestCredentials;
+import com.twitter.distributedlog.annotations.DistributedLogAnnotations;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.zookeeper.CreateMode;
@@ -32,6 +33,7 @@ import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -249,6 +251,11 @@ public class TestZooKeeperClient extends ZooKeeperClusterTestCase {
         return connected;
     }
 
+    /**
+     * {@link https://issues.apache.org/jira/browse/DL-34}
+     */
+    @DistributedLogAnnotations.FlakyTest
+    @Ignore
     @Test(timeout = 60000)
     public void testAclAuthSpansExpiration() throws Exception {
         ZooKeeperClient zkcAuth = buildAuthdClient("test");
@@ -267,6 +274,11 @@ public class TestZooKeeperClient extends ZooKeeperClusterTestCase {
         rmAll(zkcAuth, "/test");
     }
 
+    /**
+     * {@link https://issues.apache.org/jira/browse/DL-34}
+     */
+    @DistributedLogAnnotations.FlakyTest
+    @Ignore
     @Test(timeout = 60000)
     public void testAclAuthSpansExpirationNonRetryableClient() throws Exception {
         ZooKeeperClient zkcAuth = clientBuilder().retryPolicy(null).zkAclId("test").build();

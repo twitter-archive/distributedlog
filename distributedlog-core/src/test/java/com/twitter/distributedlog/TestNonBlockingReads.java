@@ -21,9 +21,11 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import com.twitter.distributedlog.annotations.DistributedLogAnnotations;
 import com.twitter.distributedlog.exceptions.IdleReaderException;
 import com.twitter.distributedlog.util.FutureUtils;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +33,11 @@ import org.slf4j.LoggerFactory;
 import static com.twitter.distributedlog.NonBlockingReadsTestUtil.*;
 import static org.junit.Assert.*;
 
+/**
+ * {@link https://issues.apache.org/jira/browse/DL-12}
+ */
+@DistributedLogAnnotations.FlakyTest
+@Ignore
 public class TestNonBlockingReads extends TestDistributedLogBase {
     static final Logger LOG = LoggerFactory.getLogger(TestNonBlockingReads.class);
 
