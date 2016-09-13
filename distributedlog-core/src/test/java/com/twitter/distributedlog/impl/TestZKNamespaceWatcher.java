@@ -20,8 +20,8 @@ package com.twitter.distributedlog.impl;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.TestDistributedLogBase;
+import com.twitter.distributedlog.TestZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClientUtils;
 import com.twitter.distributedlog.callback.NamespaceListener;
 import com.twitter.distributedlog.util.DLUtils;
@@ -60,9 +60,8 @@ public class TestZKNamespaceWatcher extends TestDistributedLogBase {
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder()
+        zkc = TestZooKeeperClientBuilder.newBuilder()
                 .uri(createDLMURI("/"))
-                .zkAclId(null)
                 .sessionTimeoutMs(zkSessionTimeoutMs)
                 .build();
         scheduler = OrderedScheduler.newBuilder()

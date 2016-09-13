@@ -43,10 +43,15 @@ public class TestLedgerHandleCache extends TestDistributedLogBase {
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder()
-                .zkServers(zkServers).sessionTimeoutMs(10000).zkAclId(null).build();
-        bkc = BookKeeperClientBuilder.newBuilder().name("bkc")
-                .zkc(zkc).ledgersPath(ledgersPath).dlConfig(conf).build();
+        zkc = TestZooKeeperClientBuilder.newBuilder()
+                .zkServers(zkServers)
+                .build();
+        bkc = BookKeeperClientBuilder.newBuilder()
+                .name("bkc")
+                .zkc(zkc)
+                .ledgersPath(ledgersPath)
+                .dlConfig(conf)
+                .build();
     }
 
     @After
@@ -79,10 +84,16 @@ public class TestLedgerHandleCache extends TestDistributedLogBase {
 
     @Test(timeout = 60000, expected = BKException.ZKException.class)
     public void testOpenLedgerWhenZkClosed() throws Exception {
-        ZooKeeperClient newZkc = ZooKeeperClientBuilder.newBuilder().zkAclId(null).name("zkc-openledger-when-zk-closed")
-                .zkServers(zkServers).sessionTimeoutMs(10000).build();
-        BookKeeperClient newBkc = BookKeeperClientBuilder.newBuilder().name("bkc-openledger-when-zk-closed")
-                .zkc(newZkc).ledgersPath(ledgersPath).dlConfig(conf).build();
+        ZooKeeperClient newZkc = TestZooKeeperClientBuilder.newBuilder()
+                .name("zkc-openledger-when-zk-closed")
+                .zkServers(zkServers)
+                .build();
+        BookKeeperClient newBkc = BookKeeperClientBuilder.newBuilder()
+                .name("bkc-openledger-when-zk-closed")
+                .zkc(newZkc)
+                .ledgersPath(ledgersPath)
+                .dlConfig(conf)
+                .build();
         try {
             LedgerHandle lh = newBkc.get().createLedger(BookKeeper.DigestType.CRC32, "zkcClosed".getBytes(UTF_8));
             lh.close();

@@ -959,10 +959,8 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
                 new AtomicReference<Collection<LogSegmentMetadata>>();
 
         DistributedLogManager dlm = createNewDLM(conf, name);
-        ZooKeeperClient zkClient = ZooKeeperClientBuilder.newBuilder()
+        ZooKeeperClient zkClient = TestZooKeeperClientBuilder.newBuilder()
                 .uri(createDLMURI("/"))
-                .sessionTimeoutMs(10000)
-                .zkAclId(null)
                 .build();
 
         BKDistributedLogManager.createLog(conf, zkClient, ((BKDistributedLogManager) dlm).uri, name);
@@ -1113,10 +1111,9 @@ public class TestBKDistributedLogManager extends TestDistributedLogBase {
     public void testTruncationValidation() throws Exception {
         String name = "distrlog-truncation-validation";
         URI uri = createDLMURI("/" + name);
-        ZooKeeperClient zookeeperClient = ZooKeeperClientBuilder.newBuilder()
+        ZooKeeperClient zookeeperClient = TestZooKeeperClientBuilder.newBuilder()
             .uri(uri)
-            .zkAclId(null)
-            .sessionTimeoutMs(10000).build();
+            .build();
         OrderedScheduler scheduler = OrderedScheduler.newBuilder()
                 .name("test-truncation-validation")
                 .corePoolSize(1)

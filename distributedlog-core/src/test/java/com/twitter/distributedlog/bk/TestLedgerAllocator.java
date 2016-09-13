@@ -19,13 +19,13 @@ package com.twitter.distributedlog.bk;
 
 import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
+import com.twitter.distributedlog.TestZooKeeperClientBuilder;
 import com.twitter.distributedlog.annotations.DistributedLogAnnotations;
 import com.twitter.distributedlog.bk.SimpleLedgerAllocator.AllocationException;
 import com.twitter.distributedlog.bk.SimpleLedgerAllocator.Phase;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.exceptions.ZKException;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.Transaction.OpListener;
@@ -94,8 +94,10 @@ public class TestLedgerAllocator extends TestDistributedLogBase {
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder().uri(createURI("/"))
-                .sessionTimeoutMs(10000).zkAclId(null).zkServers(zkServers).build();
+        zkc = TestZooKeeperClientBuilder.newBuilder()
+                .uri(createURI("/"))
+                .zkServers(zkServers)
+                .build();
         bkc = BookKeeperClientBuilder.newBuilder().name("bkc")
                 .dlConfig(dlConf).ledgersPath(ledgersPath).zkc(zkc).build();
     }

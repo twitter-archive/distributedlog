@@ -23,6 +23,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.TestDistributedLogBase;
+import com.twitter.distributedlog.TestZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClientUtils;
@@ -125,9 +126,8 @@ public class TestFederatedZKLogMetadataStore extends TestDistributedLogBase {
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder()
+        zkc = TestZooKeeperClientBuilder.newBuilder()
                 .uri(createDLMURI("/"))
-                .zkAclId(null)
                 .sessionTimeoutMs(zkSessionTimeoutMs)
                 .build();
         scheduler = OrderedScheduler.newBuilder()
@@ -203,9 +203,8 @@ public class TestFederatedZKLogMetadataStore extends TestDistributedLogBase {
     public void testCreateLog() throws Exception {
         DistributedLogConfiguration conf = new DistributedLogConfiguration();
         conf.addConfiguration(baseConf);
-        ZooKeeperClient anotherZkc = ZooKeeperClientBuilder.newBuilder()
+        ZooKeeperClient anotherZkc = TestZooKeeperClientBuilder.newBuilder()
                 .uri(uri)
-                .zkAclId(null)
                 .sessionTimeoutMs(zkSessionTimeoutMs)
                 .build();
         FederatedZKLogMetadataStore anotherMetadataStore =
@@ -429,9 +428,8 @@ public class TestFederatedZKLogMetadataStore extends TestDistributedLogBase {
 
         DistributedLogConfiguration anotherConf = new DistributedLogConfiguration();
         anotherConf.addConfiguration(baseConf);
-        ZooKeeperClient anotherZkc = ZooKeeperClientBuilder.newBuilder()
+        ZooKeeperClient anotherZkc = TestZooKeeperClientBuilder.newBuilder()
                 .uri(uri)
-                .zkAclId(null)
                 .sessionTimeoutMs(zkSessionTimeoutMs)
                 .build();
         FederatedZKLogMetadataStore anotherMetadataStore =

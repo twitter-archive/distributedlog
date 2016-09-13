@@ -25,6 +25,7 @@ import com.twitter.distributedlog.namespace.DistributedLogNamespaceBuilder;
 import com.twitter.distributedlog.util.ConfUtils;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.PermitLimiter;
+import com.twitter.distributedlog.util.RetryPolicyUtils;
 import com.twitter.distributedlog.util.Utils;
 import com.twitter.util.Await;
 import com.twitter.util.Duration;
@@ -140,14 +141,9 @@ public class DLMTestUtil {
                                                                int zkPort) throws Exception {
         URI uri = createDLMURI(zkPort, "/" + logName);
 
-        ZooKeeperClientBuilder zkcBuilder = ZooKeeperClientBuilder.newBuilder()
+        ZooKeeperClientBuilder zkcBuilder = TestZooKeeperClientBuilder.newBuilder(conf)
             .name(String.format("dlzk:%s:handler_dedicated", logName))
-            .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-            .uri(uri)
-            .statsLogger(NullStatsLogger.INSTANCE.scope("dlzk_handler_dedicated"))
-            .retryThreadCount(conf.getZKClientNumberRetryThreads())
-            .requestRateLimit(conf.getZKRequestRateLimit())
-            .zkAclId(conf.getZkAclId());
+            .uri(uri);
 
         ZooKeeperClient zkClient = zkcBuilder.build();
 

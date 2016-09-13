@@ -19,8 +19,8 @@ package com.twitter.distributedlog.util;
 
 import com.google.common.base.Optional;
 import com.twitter.distributedlog.DLMTestUtil;
+import com.twitter.distributedlog.TestZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClusterTestCase;
 import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.versioning.Versioned;
@@ -47,11 +47,10 @@ public class TestUtils extends ZooKeeperClusterTestCase {
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder()
+        zkc = TestZooKeeperClientBuilder.newBuilder()
                 .name("zkc")
                 .uri(DLMTestUtil.createDLMURI(zkPort, "/"))
                 .sessionTimeoutMs(sessionTimeoutMs)
-                .zkAclId(null)
                 .build();
     }
 

@@ -67,10 +67,9 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
     @Before
     public void setup() throws Exception {
         zooKeeperClient =
-            ZooKeeperClientBuilder.newBuilder()
+            TestZooKeeperClientBuilder.newBuilder()
                 .uri(createDLMURI("/"))
-                .zkAclId(null)
-                .sessionTimeoutMs(10000).build();
+                .build();
     }
 
     @After
@@ -310,11 +309,9 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
         initDlogMeta(namespace, "test-un", "test-stream");
         URI uri = createDLMURI(namespace);
 
-        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+        ZooKeeperClient zkc = TestZooKeeperClientBuilder.newBuilder()
             .name("unpriv")
             .uri(uri)
-            .sessionTimeoutMs(2000)
-            .zkAclId(null)
             .build();
 
         try {
@@ -340,11 +337,9 @@ public class TestBKDistributedLogNamespace extends TestDistributedLogBase {
         initDlogMeta(namespace, "test-un", "test-stream");
         URI uri = createDLMURI(namespace);
 
-        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
+        ZooKeeperClient zkc = TestZooKeeperClientBuilder.newBuilder()
             .name("unpriv")
             .uri(uri)
-            .sessionTimeoutMs(2000)
-            .zkAclId(null)
             .build();
 
         zkc.get().getChildren(uri.getPath() + "/test-stream", false, new Stat());

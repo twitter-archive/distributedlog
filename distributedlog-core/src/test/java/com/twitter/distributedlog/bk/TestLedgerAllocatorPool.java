@@ -22,8 +22,8 @@ import com.twitter.distributedlog.BookKeeperClient;
 import com.twitter.distributedlog.BookKeeperClientBuilder;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.TestDistributedLogBase;
+import com.twitter.distributedlog.TestZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.Transaction.OpListener;
 import com.twitter.distributedlog.util.Utils;
@@ -82,8 +82,9 @@ public class TestLedgerAllocatorPool extends TestDistributedLogBase {
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder().uri(createURI("/"))
-                .sessionTimeoutMs(10000).zkAclId(null).build();
+        zkc = TestZooKeeperClientBuilder.newBuilder()
+                .uri(createURI("/"))
+                .build();
         bkc = BookKeeperClientBuilder.newBuilder().name("bkc")
                 .dlConfig(dlConf).ledgersPath(ledgersPath).zkc(zkc).build();
         allocationExecutor = Executors.newSingleThreadScheduledExecutor();

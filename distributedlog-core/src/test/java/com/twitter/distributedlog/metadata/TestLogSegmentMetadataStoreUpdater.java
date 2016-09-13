@@ -22,6 +22,7 @@ import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.LogSegmentMetadata;
+import com.twitter.distributedlog.TestZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClient;
 import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClusterTestCase;
@@ -59,10 +60,10 @@ public class TestLogSegmentMetadataStoreUpdater extends ZooKeeperClusterTestCase
                 .name("test-logsegment-metadata-store-updater")
                 .corePoolSize(1)
                 .build();
-        zkc = ZooKeeperClientBuilder.newBuilder()
+        zkc = TestZooKeeperClientBuilder.newBuilder()
                 .uri(createURI("/"))
-                .zkAclId(null)
-                .sessionTimeoutMs(10000).build();
+                .sessionTimeoutMs(10000)
+                .build();
         metadataStore = new ZKLogSegmentMetadataStore(conf, zkc, scheduler);
     }
 

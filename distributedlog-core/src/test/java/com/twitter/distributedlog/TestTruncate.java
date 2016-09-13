@@ -72,9 +72,8 @@ public class TestTruncate extends TestDistributedLogBase {
         List<LogSegmentMetadata> segments = distributedLogManager.getLogSegments();
         LOG.info("Segments before modifying completion time : {}", segments);
 
-        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder().zkAclId(null).uri(uri)
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                .connectionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
+        ZooKeeperClient zkc = TestZooKeeperClientBuilder.newBuilder(conf)
+                .uri(uri)
                 .build();
 
         // Update completion time of first 5 segments
@@ -198,11 +197,8 @@ public class TestTruncate extends TestDistributedLogBase {
         List<LogSegmentMetadata> segments = dlm.getLogSegments();
         LOG.info("Segments before modifying segment status : {}", segments);
 
-        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
-                .zkAclId(null)
+        ZooKeeperClient zkc = TestZooKeeperClientBuilder.newBuilder(conf)
                 .uri(uri)
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                .connectionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .build();
         setTruncationStatus(zkc, segments.get(0), TruncationStatus.PARTIALLY_TRUNCATED);
         for (int i = 1; i < 4; i++) {
@@ -266,11 +262,8 @@ public class TestTruncate extends TestDistributedLogBase {
         List<LogSegmentMetadata> segments = dlm.getLogSegments();
         LOG.info("Segments before modifying segment status : {}", segments);
 
-        ZooKeeperClient zkc = ZooKeeperClientBuilder.newBuilder()
-                .zkAclId(null)
+        ZooKeeperClient zkc = TestZooKeeperClientBuilder.newBuilder(conf)
                 .uri(uri)
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                .connectionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
                 .build();
         for (int i = 0; i < 4; i++) {
             LogSegmentMetadata segment = segments.get(i);

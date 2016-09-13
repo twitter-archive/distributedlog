@@ -21,6 +21,7 @@ import java.net.URI;
 import java.util.concurrent.TimeUnit;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.TestZooKeeperClientBuilder;
 import com.twitter.distributedlog.annotations.DistributedLogAnnotations;
 import com.twitter.distributedlog.util.Utils;
 import org.apache.zookeeper.CreateMode;
@@ -40,7 +41,6 @@ import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.TestDistributedLogBase;
 import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.metadata.DryrunLogSegmentMetadataStoreUpdater;
 import com.twitter.distributedlog.metadata.LogSegmentMetadataStoreUpdater;
 import com.twitter.util.Await;
@@ -58,11 +58,9 @@ public class TestDistributedLogAdmin extends TestDistributedLogBase {
 
     @Before
     public void setup() throws Exception {
-        zooKeeperClient = ZooKeeperClientBuilder
+        zooKeeperClient = TestZooKeeperClientBuilder
             .newBuilder()
             .uri(createDLMURI("/"))
-            .sessionTimeoutMs(10000)
-            .zkAclId(null)
             .build();
         conf.setTraceReadAheadMetadataChanges(true);
     }

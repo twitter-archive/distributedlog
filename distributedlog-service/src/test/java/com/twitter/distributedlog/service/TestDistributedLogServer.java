@@ -21,13 +21,13 @@ import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.DLMTestUtil;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogManager;
+import com.twitter.distributedlog.TestZooKeeperClientBuilder;
 import com.twitter.distributedlog.annotations.DistributedLogAnnotations;
 import com.twitter.distributedlog.exceptions.LogNotFoundException;
 import com.twitter.distributedlog.LogReader;
 import com.twitter.distributedlog.LogRecord;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.acl.AccessControlManager;
 import com.twitter.distributedlog.acl.ZKAccessControl;
 import com.twitter.distributedlog.client.DistributedLogClientImpl;
@@ -586,12 +586,11 @@ public class TestDistributedLogServer extends DistributedLogServerTestCase {
 
         AccessControlEntry ace = new AccessControlEntry();
         ace.setDenyWrite(true);
-        ZooKeeperClient zkc = ZooKeeperClientBuilder
+        ZooKeeperClient zkc = TestZooKeeperClientBuilder
                 .newBuilder()
                 .uri(getUri())
                 .connectionTimeoutMs(60000)
                 .sessionTimeoutMs(60000)
-                .zkAclId(null)
                 .build();
         DistributedLogNamespace dlNamespace = dlServer.dlServer.getLeft().getDistributedLogNamespace();
         BKDLConfig bkdlConfig = BKDLConfig.resolveDLConfig(zkc, getUri());

@@ -54,7 +54,9 @@ public class TestLogSegmentMetadata extends ZooKeeperClusterTestCase {
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder().zkAclId(null).zkServers(zkServers).sessionTimeoutMs(10000).build();
+        zkc = TestZooKeeperClientBuilder.newBuilder()
+                .zkServers(zkServers)
+                .build();
     }
 
     @After

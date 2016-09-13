@@ -82,16 +82,12 @@ public class TestBKLogSegmentWriter extends TestDistributedLogBase {
         lockStateExecutor = OrderedScheduler.newBuilder().corePoolSize(1).build();
         // build zookeeper client
         URI uri = createDLMURI("");
-        zkc = ZooKeeperClientBuilder.newBuilder()
+        zkc = TestZooKeeperClientBuilder.newBuilder(conf)
                 .name("test-zkc")
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                .zkAclId(conf.getZkAclId())
                 .uri(uri)
                 .build();
-        zkc0 = ZooKeeperClientBuilder.newBuilder()
+        zkc0 = TestZooKeeperClientBuilder.newBuilder(conf)
                 .name("test-zkc0")
-                .sessionTimeoutMs(conf.getZKSessionTimeoutMilliseconds())
-                .zkAclId(conf.getZkAclId())
                 .uri(uri)
                 .build();
         // build bookkeeper client

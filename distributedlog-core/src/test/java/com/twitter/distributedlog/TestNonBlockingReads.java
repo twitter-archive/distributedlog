@@ -215,10 +215,8 @@ public class TestNonBlockingReads extends TestDistributedLogBase {
 
     private long createStreamWithInconsistentMetadata(String name) throws Exception {
         DistributedLogManager dlm = createNewDLM(conf, name);
-        ZooKeeperClient zkClient = ZooKeeperClientBuilder.newBuilder()
-                .zkAclId(null)
+        ZooKeeperClient zkClient = TestZooKeeperClientBuilder.newBuilder()
                 .uri(createDLMURI("/"))
-                .sessionTimeoutMs(10000)
                 .build();
         long txid = 1;
 

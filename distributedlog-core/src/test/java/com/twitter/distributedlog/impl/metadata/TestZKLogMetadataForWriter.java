@@ -17,6 +17,7 @@
  */
 package com.twitter.distributedlog.impl.metadata;
 
+import com.twitter.distributedlog.TestZooKeeperClientBuilder;
 import com.twitter.distributedlog.metadata.BKDLConfig;
 import com.twitter.distributedlog.metadata.DLMetadata;
 import com.google.common.collect.Lists;
@@ -92,11 +93,10 @@ public class TestZKLogMetadataForWriter extends ZooKeeperClusterTestCase {
 
     @Before
     public void setup() throws Exception {
-        zkc = ZooKeeperClientBuilder.newBuilder()
+        zkc = TestZooKeeperClientBuilder.newBuilder()
                 .name("zkc")
                 .uri(DLMTestUtil.createDLMURI(zkPort, "/"))
                 .sessionTimeoutMs(sessionTimeoutMs)
-                .zkAclId(null)
                 .build();
     }
 

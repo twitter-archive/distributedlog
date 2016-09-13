@@ -18,8 +18,8 @@
 package com.twitter.distributedlog.acl;
 
 import com.twitter.distributedlog.DistributedLogConfiguration;
+import com.twitter.distributedlog.TestZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClient;
-import com.twitter.distributedlog.ZooKeeperClientBuilder;
 import com.twitter.distributedlog.ZooKeeperClientUtils;
 import com.twitter.distributedlog.ZooKeeperClusterTestCase;
 import com.twitter.distributedlog.thrift.AccessControlEntry;
@@ -51,10 +51,9 @@ public class TestZKAccessControlManager extends ZooKeeperClusterTestCase {
     @Before
     public void setup() throws Exception {
         executorService = Executors.newSingleThreadScheduledExecutor();
-        zkc = ZooKeeperClientBuilder.newBuilder()
+        zkc = TestZooKeeperClientBuilder.newBuilder()
                 .uri(createURI("/"))
-                .zkAclId(null)
-                .sessionTimeoutMs(10000).build();
+                .build();
         conf = new DistributedLogConfiguration();
     }
 
