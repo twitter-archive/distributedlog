@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.org/apache/incubator-distributedlog.svg?branch=master)](https://travis-ci.org/apache/incubator-distributedlog)
+[![Coverage Status](https://coveralls.io/repos/github/apache/incubator-distributedlog/badge.svg?branch=master)](https://coveralls.io/github/apache/incubator-distributedlog?branch=master)
 
 ## Overview
 
