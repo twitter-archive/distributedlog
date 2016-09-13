@@ -1,0 +1,50 @@
+# Welcome to Jekyll!
+#
+# This config file is meant for settings that affect your whole blog, values
+# which you are expected to set up once and rarely need to edit after that.
+# For technical reasons, this file is *NOT* reloaded automatically when you use
+# 'jekyll serve'. If you change this file, please restart the server process.
+
+# Site settings
+title: Apache DistributedLog (incubating)
+description: > # this means to ignore newlines until "baseurl:"
+  Apache DistributedLog is an high performance replicated log.
+
+# the subpath of your site, e.g. /blog
+baseurl: ""
+
+distributedlog_version: "0.4.0-SNAPSHOT"
+distributedlog_version_short: "0.4.0"
+
+# the base hostname & protocol for your site
+# url: "http://distributedlog.incubator.apache.org"
+url: ""
+
+twitter_username: distributedlog
+twitter_url: https://twitter.com/distributedlog
+github_url: https://github.com/apache/incubator-distributedlog
+wiki_url: https://cwiki.apache.org/confluence/display/DL/Apache+DistributedLog+Home
+jira_url: https://issues.apache.org/jira/browse/DL
+
+# Build settings
+markdown: kramdown
+
+kramdown:
+  auto_ids: true
+
+redcarpet:
+  # https://george-hawkins.github.io/basic-gfm-jekyll/redcarpet-extensions.html
+  extensions: ["no_intra_emphasis", "fenced_code_blocks", "autolink",
+               "tables", "with_toc_data", "strikethrough", "superscript",
+               "lax_spacing"]
+
+# Things to ignore in the build
+exclude: ['README.md', 'Gemfile.lock', 'Gemfile', 'Rakefile']
+
+# Downloads directory
+downloads: downloads
+
+tracking_id: UA-83870961-1
+
+gems:
+  - jekyll-redirect-from

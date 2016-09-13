@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  {% include head.html %}
+
+  <body role="document">
+
+    {% include header.html %}
+
+    <div class="container" role="main">
+
+      <div class="row">
+        {% comment %}
+        This is the base for all content. The content from the layouts found in
+        the _layouts directory goes here.
+        {% endcomment %}
+        {{ content }}
+      </div>
+
+
+    {% include footer.html %}
+
+    {% include anchors_links.html %}
+  </body>
+
+</html>

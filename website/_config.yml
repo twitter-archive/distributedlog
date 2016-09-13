@@ -1,0 +1,50 @@
+# Welcome to Jekyll!
+#
+# This config file is meant for settings that affect your whole blog, values
+# which you are expected to set up once and rarely need to edit after that.
+# For technical reasons, this file is *NOT* reloaded automatically when you use
+# 'jekyll serve'. If you change this file, please restart the server process.
+
+# Site settings
+title: Apache DistributedLog (incubating)
+description: > # this means to ignore newlines until "baseurl:"
+  Apache DistributedLog is an high performance replicated log.
+
+# versions
+DL_VERSION_STABLE: 0.3.51-RC1
+
+# the subpath of your site, e.g. /blog
+baseurl: ""
+
+# the base hostname & protocol for your site
+url: "http://distributedlog.incubator.apache.org"
+
+twitter_username: distributedlog
+twitter_url: https://twitter.com/distributedlog
+github_url: https://github.com/apache/incubator-distributedlog
+wiki_url: https://cwiki.apache.org/confluence/display/DL/Apache+DistributedLog+Home
+jira_url: https://issues.apache.org/jira/browse/DL
+developer_setup_url: https://cwiki.apache.org/confluence/display/DL/Developer+Setup
+contribute_how_to_url: https://cwiki.apache.org/confluence/display/DL/Contributing+to+DistributedLog
+coding_guide_url: https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=65867477
+
+# Build settings
+markdown: kramdown
+
+collections:
+- distributedlog_team
+- mentors
+
+# Things to ignore in the build
+exclude: ['README.md', 'Gemfile.lock', 'Gemfile', 'Rakefile', 'docs', 'build.sh']
+
+# Things to keep in the build
+keep_files: ['docs']
+
+# Downloads directory
+downloads: downloads
+
+tracking_id: UA-83870961-1
+
+gems:
+  - jekyll-redirect-from

@@ -1,0 +1,46 @@
+---
+layout: base
+---
+<div class="col-md-8 col-md-offset-2">
+  <ul id="sub-nav">
+    {% comment %} Get all pages belonging to this group sorted by their position {% endcomment %}
+    {% assign group = (site.pages | where: "sub-nav-group" , page.sub-nav-id | where: "sub-nav-parent", "_root_" | sort:"sub-nav-pos") %}
+    {% for group_page in group %}
+      {% if group_page.sub-nav-id  %}
+        {% assign sub_group = (site.pages | where: "sub-nav-group" , page.sub-nav-group | where: "sub-nav-parent" , group_page.sub-nav-id | sort: "sub-nav-pos") %}
+      {% else %}
+        {% assign sub_group = nil %}
+      {% endif %}
+      <li><a href="{{ site.baseurl }}{{ group_page.url }}" class="{% if page.url contains group_page.url %}active{% endif %}">{% if group_page.sub-nav-title %}{{ group_page.sub-nav-title }}{% else %}{{ group_page.title }}{% endif %}</a>
+        {% if sub_group %}
+        <ul>
+          {% for sub_group_page in sub_group %}
+            {% if sub_group_page.sub-nav-id %}
+              {% assign sub_sub_group = (site.pages | where: "sub-nav-group", page.sub-nav-group | where: "sub-nav-parent", sub_group_page.sub-nav-id | sort: "sub-nav-pos") %}
+            {% else %}
+              {% assign sub_sub_group = nil %}
+            {% endif %}
+            <li>
+              <a href="{{ site.baseurl }}{{ sub_group_page.url }}" class="{% if page.url contains sub_group_page.url %}active{% endif %}">
+                {% if sub_group_page.sub-nav-title %}{{ sub_group_page.sub-nav-title }}{% else %}{{ sub_group_page.title }}{% endif %}
+              </a>
+              {% if sub_sub_group %}
+              <ul>
+                {% for sub_sub_group_page in sub_sub_group %}
+                  {% assign item_active = (page.url contains sub_sub_group_page.url or (sub_sub_group_page.sub-nav-id and page.sub-nav-parent and sub_sub_group_page.sub-nav-id == sub_group_page.sub-nav-parent)) %}
+                  <li>
+                    <a href="{{ site.baseurl }}{{ sub_sub_group_page.url }}" class="{% if item_active %}active{% endif %}">
+                      {% if sub_sub_group_page.sub-nav-title %}{{ sub_sub_group_page.sub-nav-title }}{% else %}{{ sub_sub_group_page.title }}{% endif %}
+                    </a>
+                  </li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+</div>
