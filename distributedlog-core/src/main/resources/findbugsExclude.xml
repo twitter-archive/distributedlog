@@ -22,13 +22,14 @@
   </Match>
   <Match>
     <!-- it is safe to store external bytes reference here. //-->
-    <Class name="com.twitter.distributedlog.LogRecord" />
+    <Class name="com.twitter.distributedlog.Entry$Builder" />
+    <Method name="setData" />
     <Bug pattern="EI_EXPOSE_REP2" />
   </Match>
   <Match>
     <!-- it is safe to store external bytes reference here. //-->
-    <Class name="com.twitter.distributedlog.LogRecord" />
-    <Method name="getPayload" />
+    <Class name="com.twitter.distributedlog.Entry" />
+    <Method name="getRawData" />
     <Bug pattern="EI_EXPOSE_REP" />
   </Match>
   <Match>

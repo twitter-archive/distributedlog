@@ -486,10 +486,11 @@ class BKDistributedLogManager extends ZKMetadataAccessor implements DistributedL
     }
 
     public void checkClosedOrInError(String operation) throws AlreadyClosedException {
-        if (null != closePromise) {
-            throw new AlreadyClosedException("Executing " + operation + " on already closed DistributedLogManager");
+        synchronized (this) {
+            if (null != closePromise) {
+                throw new AlreadyClosedException("Executing " + operation + " on already closed DistributedLogManager");
+            }
         }
-
         if (null != writerBKC) {
             writerBKC.checkClosedOrInError();
         }

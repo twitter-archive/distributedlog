@@ -52,7 +52,6 @@ public class ProxyTool extends Tool {
     protected abstract static class ClusterCommand extends OptsCommand {
 
         protected Options options = new Options();
-        protected String dc;
         protected URI uri;
         protected final List<String> streams = new ArrayList<String>();
 

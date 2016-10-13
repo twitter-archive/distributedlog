@@ -206,9 +206,10 @@ public class FederatedZKLogMetadataStore extends NamespaceWatcher implements Log
         Set<URI> uris = FutureUtils.result(fetchSubNamespaces(this));
         for (URI uri : uris) {
             SubNamespace subNs = new SubNamespace(uri);
-            subNamespaces.putIfAbsent(uri, subNs);
-            subNs.watch();
-            logger.info("Watched sub namespace {}", uri);
+            if (null == subNamespaces.putIfAbsent(uri, subNs)) {
+                subNs.watch();
+                logger.info("Watched sub namespace {}", uri);
+            }
         }
 
         logger.info("Federated ZK LogMetadataStore is initialized for {}", namespace);
@@ -598,10 +599,19 @@ public class FederatedZKLogMetadataStore extends NamespaceWatcher implements Log
     }
 
     void setZkSubnamespacesVersion(int zkVersion) {
-        synchronized (zkSubnamespacesVersion) {
-            Integer oldVersion = zkSubnamespacesVersion.get();
-            if (null == oldVersion || oldVersion < zkVersion) {
-                zkSubnamespacesVersion.set(zkVersion);
+        Integer oldVersion;
+        boolean done = false;
+        while (!done) {
+            oldVersion = zkSubnamespacesVersion.get();
+            if (null == oldVersion) {
+                done = zkSubnamespacesVersion.compareAndSet(null, zkVersion);
+                continue;
+            }
+            if (oldVersion < zkVersion) {
+                done = zkSubnamespacesVersion.compareAndSet(oldVersion, zkVersion);
+                continue;
+            } else {
+                done = true;
             }
         }
     }

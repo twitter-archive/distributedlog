@@ -52,8 +52,6 @@ public class ConsoleProxyRRMultiWriter {
         String[] streamNameList = StringUtils.split(streamList, ',');
         RRMultiWriter<Integer, String> writer = new RRMultiWriter(streamNameList, client);
 
-        // Setup Terminal
-        Terminal terminal = Terminal.setupTerminal();
         ConsoleReader reader = new ConsoleReader();
         String line;
         while ((line = reader.readLine(PROMPT_MESSAGE)) != null) {

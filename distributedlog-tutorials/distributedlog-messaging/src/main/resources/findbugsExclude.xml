@@ -18,18 +18,16 @@
 <FindBugsFilter>
   <Match>
     <!-- generated code, we can't be held responsible for findbugs in it //-->
-    <Class name="~com\.twitter\.distributedlog\.thrift.*" />
+    <Class name="~.*\.TransformedRecord" />
   </Match>
   <Match>
-    <!-- it is safe to cast exception here. //-->
-    <Class name="com.twitter.distributedlog.service.DistributedLogServiceImpl$Stream$2" />
-    <Method name="onFailure" />
-    <Bug pattern="BC_UNCONFIRMED_CAST" />
+    <!-- it is safe to store external bytes reference here. //-->
+    <Class name="com.twitter.distributedlog.messaging.PartitionedMultiWriter" />
+    <Bug pattern="EI_EXPOSE_REP2" />
   </Match>
   <Match>
-    <!-- it is safe to cast exception here. //-->
-    <Class name="com.twitter.distributedlog.service.stream.BulkWriteOp" />
-    <Method name="isDefiniteFailure" />
-    <Bug pattern="BC_IMPOSSIBLE_INSTANCEOF" />
+    <!-- it is safe to store external bytes reference here. //-->
+    <Class name="com.twitter.distributedlog.messaging.RRMultiWriter" />
+    <Bug pattern="EI_EXPOSE_REP2" />
   </Match>
 </FindBugsFilter>

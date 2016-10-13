@@ -165,7 +165,7 @@ public class DLUtils {
      */
     public static long deserializeLogSegmentSequenceNumber(byte[] data) {
         String seqNoStr = new String(data, UTF_8);
-        return Long.valueOf(seqNoStr);
+        return Long.parseLong(seqNoStr);
     }
 
     /**
@@ -189,7 +189,7 @@ public class DLUtils {
      */
     public static long deserializeTransactionId(byte[] data) {
         String seqNoStr = new String(data, UTF_8);
-        return Long.valueOf(seqNoStr);
+        return Long.parseLong(seqNoStr);
     }
 
     /**
@@ -222,6 +222,6 @@ public class DLUtils {
      * @return ledger id
      */
     public static long bytes2LedgerId(byte[] data) {
-        return Long.valueOf(new String(data, UTF_8));
+        return Long.parseLong(new String(data, UTF_8));
     }
 }

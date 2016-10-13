@@ -395,12 +395,8 @@ public class DistributedLogTool extends Tool {
                                                 LedgerAllocatorUtils.createLedgerAllocatorPool(poolPath, 0, getConf(),
                                                         getZooKeeperClient(), getBookKeeperClient(),
                                                         allocationExecutor);
-                                        if (null == allocator) {
-                                            System.err.println("ERROR: use zk34 version to delete allocator pool : " + poolPath + " .");
-                                        } else {
-                                            allocator.delete();
-                                            System.out.println("Deleted allocator pool : " + poolPath + " .");
-                                        }
+                                        allocator.delete();
+                                        System.out.println("Deleted allocator pool : " + poolPath + " .");
                                     } catch (IOException ioe) {
                                         System.err.println("Failed to delete allocator pool " + poolPath + " : " + ioe.getMessage());
                                     }
@@ -538,9 +534,7 @@ public class DistributedLogTool extends Tool {
             }
             for (Map.Entry<String, List<Pair<LogSegmentMetadata, List<String>>>> entry : corruptedCandidates.entrySet()) {
                 System.out.println(entry.getKey() + " : \n");
-                List<LogSegmentMetadata> segments = new ArrayList<LogSegmentMetadata>(entry.getValue().size());
                 for (Pair<LogSegmentMetadata, List<String>> pair : entry.getValue()) {
-                    segments.add(pair.getLeft());
                     System.out.println("\t - " + pair.getLeft());
                     if (printInprogressOnly && dumpEntries) {
                         int i = 0;
@@ -2592,10 +2586,6 @@ public class DistributedLogTool extends Tool {
             options.addOption("b64", "base64", true, "Base64 encoded dlsn");
         }
 
-        public void setBase64DLSN(String base64Dlsn) {
-            base64Dlsn = base64Dlsn;
-        }
-
         protected void parseCommandLine(CommandLine cmdline) throws ParseException {
             if (cmdline.hasOption("b64")) {
                 base64Dlsn = cmdline.getOptionValue("b64");
@@ -2620,10 +2610,6 @@ public class DistributedLogTool extends Tool {
             super("serialize_dlsn", "Serialize DLSN. Default format is base64 string.");
             options.addOption("dlsn", true, "DLSN in comma separated format to serialize");
             options.addOption("x", "hex", false, "Emit hex-encoded string DLSN instead of base 64");
-        }
-
-        public void setDLSN(DLSN dlsn) {
-            dlsn = dlsn;
         }
 
         protected void parseCommandLine(CommandLine cmdline) throws ParseException {

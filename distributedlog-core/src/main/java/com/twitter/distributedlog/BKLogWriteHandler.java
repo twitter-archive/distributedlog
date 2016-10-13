@@ -108,7 +108,6 @@ class BKLogWriteHandler extends BKLogHandler {
     protected final boolean sanityCheckTxnId;
     protected final boolean validateLogSegmentSequenceNumber;
     protected final int regionId;
-    protected volatile boolean closed = false;
     protected final RollingPolicy rollingPolicy;
     protected Future<? extends DistributedLock> lockFuture = null;
     protected final PermitLimiter writeLimiter;
@@ -225,7 +224,7 @@ class BKLogWriteHandler extends BKLogHandler {
 
         // Rolling Policy
         if (conf.getLogSegmentRollingIntervalMinutes() > 0) {
-            rollingPolicy = new TimeBasedRollingPolicy(conf.getLogSegmentRollingIntervalMinutes() * 60 * 1000);
+            rollingPolicy = new TimeBasedRollingPolicy(conf.getLogSegmentRollingIntervalMinutes() * 60 * 1000L);
         } else {
             rollingPolicy = new SizeBasedRollingPolicy(conf.getMaxLogSegmentBytes());
         }

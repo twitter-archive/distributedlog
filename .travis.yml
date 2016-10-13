@@ -28,7 +28,7 @@ install:
 
 script:
   - travis_retry mvn clean apache-rat:check
-  - travis_wait 60 mvn package
+  - travis_wait 60 mvn package findbugs:check
 
 cache:
   directories:

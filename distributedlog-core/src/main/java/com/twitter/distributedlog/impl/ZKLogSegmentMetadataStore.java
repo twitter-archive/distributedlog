@@ -326,7 +326,7 @@ public class ZKLogSegmentMetadataStore implements LogSegmentMetadataStore, Watch
                 listenerSet.add(listener);
                 if (!listeners.containsKey(logSegmentsPath)) {
                     // listener set has been removed, add it back
-                    listeners.putIfAbsent(logSegmentsPath, listenerSet);
+                    listeners.put(logSegmentsPath, listenerSet);
                 }
             }
             new ReadLogSegmentsTask(logSegmentsPath, this).run();

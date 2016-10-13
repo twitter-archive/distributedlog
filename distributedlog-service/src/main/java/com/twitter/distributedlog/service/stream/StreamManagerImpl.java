@@ -210,11 +210,12 @@ public class StreamManagerImpl implements StreamManager {
     @Override
     public Map<String, String> getStreamOwnershipMap(Optional<String> regex) {
         Map<String, String> ownershipMap = new HashMap<String, String>();
-        for (String name : acquiredStreams.keySet()) {
+        for (Map.Entry<String, Stream> entry : acquiredStreams.entrySet()) {
+            String name = entry.getKey();
             if (regex.isPresent() && !name.matches(regex.get())) {
                 continue;
             }
-            Stream stream = acquiredStreams.get(name);
+            Stream stream = entry.getValue();
             if (null == stream) {
                 continue;
             }
@@ -248,7 +249,7 @@ public class StreamManagerImpl implements StreamManager {
 
                 // add partition to cached map
                 if (!cachedPartitions.addPartition(partition, maxCachedPartitions)) {
-                    throw new StreamUnavailableException("Stream " + stream
+                    throw new StreamUnavailableException("Stream " + streamName
                             + " is not allowed to cache more than " + maxCachedPartitions + " partitions");
                 }
 

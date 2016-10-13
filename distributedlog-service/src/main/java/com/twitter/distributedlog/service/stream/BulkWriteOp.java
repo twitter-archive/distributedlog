@@ -37,6 +37,7 @@ import com.twitter.distributedlog.thrift.service.BulkWriteResponse;
 import com.twitter.distributedlog.thrift.service.ResponseHeader;
 import com.twitter.distributedlog.thrift.service.StatusCode;
 import com.twitter.distributedlog.thrift.service.WriteResponse;
+import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.distributedlog.util.Sequencer;
 import com.twitter.util.ConstFuture;
 import com.twitter.util.Future$;

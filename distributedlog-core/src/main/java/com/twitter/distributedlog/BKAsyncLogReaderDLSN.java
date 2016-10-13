@@ -90,6 +90,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private final AtomicReference<Throwable> lastException = new AtomicReference<Throwable>();
     private final ScheduledExecutorService executorService;
     private final ConcurrentLinkedQueue<PendingReadRequest> pendingRequests = new ConcurrentLinkedQueue<PendingReadRequest>();
+    private final Object scheduleLock = new Object();
     private final AtomicLong scheduleCount = new AtomicLong(0);
     final private Stopwatch scheduleDelayStopwatch;
     final private Stopwatch readNextDelayStopwatch;
@@ -112,7 +113,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
     private final Runnable BACKGROUND_READ_SCHEDULER = new Runnable() {
         @Override
         public void run() {
-            synchronized (scheduleCount) {
+            synchronized (scheduleLock) {
                 backgroundScheduleTask = null;
             }
             scheduleBackgroundRead();
@@ -485,7 +486,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
             LOG.info("{}: Failed to cancel the background idle reader timeout task", bkLedgerManager.getFullyQualifiedName());
         }
 
-        synchronized (scheduleCount) {
+        synchronized (scheduleLock) {
             if (null != backgroundScheduleTask) {
                 backgroundScheduleTask.cancel(true);
             }
@@ -508,7 +509,7 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
 
     @Override
     public void run() {
-        synchronized(scheduleCount) {
+        synchronized(scheduleLock) {
             if (scheduleDelayStopwatch.isRunning()) {
                 scheduleLatency.registerSuccessfulEvent(scheduleDelayStopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
@@ -533,11 +534,11 @@ class BKAsyncLogReaderDLSN implements ZooKeeperClient.ZooKeeperSessionExpireNoti
                         backgroundReaderRunTime.registerSuccessfulEvent(runTime.stop().elapsed(TimeUnit.MICROSECONDS));
                         return;
                     }
-                }
 
-                if (disableProcessingReadRequests) {
-                    LOG.info("Reader of {} is forced to stop processing read requests", bkLedgerManager.getFullyQualifiedName());
-                    return;
+                    if (disableProcessingReadRequests) {
+                        LOG.info("Reader of {} is forced to stop processing read requests", bkLedgerManager.getFullyQualifiedName());
+                        return;
+                    }
                 }
 
                 // If the oldest pending promise is interrupted then we must mark

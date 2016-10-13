@@ -26,10 +26,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import scala.runtime.BoxedUnit;
 
 public class MovingAverageRateFactory {
+
+    private static final int DEFAULT_INTERVAL_SECS = 1;
+
     private final Timer timer;
     private final TimerTask timerTask;
     private final CopyOnWriteArrayList<SampledMovingAverageRate> avgs;
-    private final int DEFAULT_INTERVAL_SECS = 1;
 
     public MovingAverageRateFactory(Timer timer) {
         this.avgs = new CopyOnWriteArrayList<SampledMovingAverageRate>();

@@ -79,7 +79,7 @@ class DLFutureRecordMetadata implements Future<RecordMetadata> {
     @Override
     public RecordMetadata get() throws InterruptedException, ExecutionException {
         try {
-            DLSN dlsn = FutureUtils.result(dlsnFuture);
+            FutureUtils.result(dlsnFuture);
             // TODO: align the DLSN concepts with kafka concepts
             return new RecordMetadata(new TopicPartition(topic, 0), -1L, -1L);
         } catch (DLInterruptedException e) {
@@ -92,7 +92,7 @@ class DLFutureRecordMetadata implements Future<RecordMetadata> {
     @Override
     public RecordMetadata get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
         try {
-            DLSN dlsn = FutureUtils.result(dlsnFuture, Duration.apply(timeout, unit));
+            FutureUtils.result(dlsnFuture, Duration.apply(timeout, unit));
             // TODO: align the DLSN concepts with kafka concepts
             return new RecordMetadata(new TopicPartition(topic, 0), -1L, -1L);
         } catch (DLInterruptedException e) {

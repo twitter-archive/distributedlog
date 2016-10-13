@@ -458,7 +458,7 @@ public class BKAsyncLogWriter extends BKAbstractLogWriter implements AsyncLogWri
             }
         }
         if (null == writerFuture) {
-            return Future.value(lastTxId);
+            return Future.value(getLastTxId());
         }
         return writerFuture.flatMap(new AbstractFunction1<BKLogSegmentWriter, Future<Long>>() {
             @Override

@@ -1275,8 +1275,6 @@ public class ReadAheadWorker implements ReadAheadCallback, Runnable, Watcher, As
             submit(new Runnable() {
                 @Override
                 public void run() {
-                    long numEntries = endEntryId - startEntryId + 1;
-
                     // If readAheadSkipBrokenEntries is enabled and we hit a corrupt entry, log and
                     // stat the issue and move forward.
                     if (BKException.Code.DigestMatchException == rc && readAheadSkipBrokenEntries) {

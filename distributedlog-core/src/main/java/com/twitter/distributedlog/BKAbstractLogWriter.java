@@ -356,8 +356,10 @@ abstract class BKAbstractLogWriter implements Closeable, AsyncCloseable, Abortab
 
         // skip scheduling if there is task that's already running
         //
-        if (truncationEnabled && ((lastTruncationAttempt == null) || lastTruncationAttempt.isDefined())) {
-            lastTruncationAttempt = writeHandler.purgeLogSegmentsOlderThanTimestamp(minTimestampToKeep);
+        synchronized (this) {
+            if (truncationEnabled && ((lastTruncationAttempt == null) || lastTruncationAttempt.isDefined())) {
+                lastTruncationAttempt = writeHandler.purgeLogSegmentsOlderThanTimestamp(minTimestampToKeep);
+            }
         }
     }
 

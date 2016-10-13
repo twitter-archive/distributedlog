@@ -439,7 +439,8 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
             MapDifference<Integer, SocketAddress> difference =
                     Maps.difference(shardId2Address, newMap);
             left = difference.entriesOnlyOnLeft();
-            for (Integer shard : left.keySet()) {
+            for (Map.Entry<Integer, SocketAddress> shardEntry : left.entrySet()) {
+                int shard = shardEntry.getKey();
                 if (shard >= 0) {
                     SocketAddress host = shardId2Address.get(shard);
                     if (null != host) {
@@ -452,7 +453,7 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                 } else {
                     // shard id is negative - they are resolved from finagle name, which instances don't have shard id
                     // in this case, if they are removed from serverset, we removed them directly
-                    SocketAddress host = left.get(shard);
+                    SocketAddress host = shardEntry.getValue();
                     if (null != host) {
                         removeHostInternal(host, Optional.<Throwable>absent());
                         removedList.add(host);
@@ -460,11 +461,11 @@ public class ConsistentHashRoutingService extends ServerSetRoutingService {
                 }
             }
             // we need to find if any shards are replacing old shards
-            for (Integer shard : newMap.keySet()) {
-                SocketAddress oldHost = shardId2Address.get(shard);
-                SocketAddress newHost = newMap.get(shard);
+            for (Map.Entry<Integer, SocketAddress> shard : newMap.entrySet()) {
+                SocketAddress oldHost = shardId2Address.get(shard.getKey());
+                SocketAddress newHost = shard.getValue();
                 if (!newHost.equals(oldHost)) {
-                    join(shard, newHost, removedList);
+                    join(shard.getKey(), newHost, removedList);
                     joinedList.add(newHost);
                 }
             }

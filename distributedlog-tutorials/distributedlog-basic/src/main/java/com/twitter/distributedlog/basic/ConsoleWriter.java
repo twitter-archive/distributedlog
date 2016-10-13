@@ -24,7 +24,6 @@ import com.twitter.distributedlog.util.FutureUtils;
 import com.twitter.util.Duration;
 import com.twitter.util.FutureEventListener;
 import jline.ConsoleReader;
-import jline.Terminal;
 
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
@@ -70,8 +69,6 @@ public class ConsoleWriter {
             try {
                 writer = FutureUtils.result(dlm.openAsyncLogWriter());
 
-                // Setup Terminal
-                Terminal terminal = Terminal.setupTerminal();
                 ConsoleReader reader = new ConsoleReader();
                 String line;
                 while ((line = reader.readLine(PROMPT_MESSAGE)) != null) {

@@ -25,7 +25,6 @@ import com.twitter.distributedlog.service.DistributedLogClientBuilder;
 import com.twitter.finagle.thrift.ClientId;
 import com.twitter.util.FutureEventListener;
 import jline.ConsoleReader;
-import jline.Terminal;
 import org.apache.commons.lang.StringUtils;
 
 import java.nio.ByteBuffer;
@@ -66,8 +65,6 @@ public class ConsoleProxyMultiWriter {
                 .requestTimeoutMs(50000)
                 .build();
 
-        // Setup Terminal
-        Terminal terminal = Terminal.setupTerminal();
         ConsoleReader reader = new ConsoleReader();
         String line;
         while ((line = reader.readLine(PROMPT_MESSAGE)) != null) {

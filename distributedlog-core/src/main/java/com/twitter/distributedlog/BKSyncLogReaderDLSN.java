@@ -101,7 +101,7 @@ class BKSyncLogReaderDLSN implements LogReader, Runnable, FutureEventListener<Lo
         }
     }
 
-    private void setLastSeenDLSN(DLSN dlsn) {
+    private synchronized void setLastSeenDLSN(DLSN dlsn) {
         synchronized (sharedLock) {
             this.lastSeenDLSN = dlsn;
         }

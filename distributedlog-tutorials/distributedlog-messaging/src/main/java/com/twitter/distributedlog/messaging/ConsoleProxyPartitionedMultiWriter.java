@@ -82,8 +82,6 @@ public class ConsoleProxyPartitionedMultiWriter {
                         new IntPartitioner(),
                         client);
 
-        // Setup Terminal
-        Terminal terminal = Terminal.setupTerminal();
         ConsoleReader reader = new ConsoleReader();
         String line;
         while ((line = reader.readLine(PROMPT_MESSAGE)) != null) {

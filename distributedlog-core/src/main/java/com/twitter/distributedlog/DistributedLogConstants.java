@@ -57,7 +57,7 @@ public class DistributedLogConstants {
     public static final String INPROGRESS_LOGSEGMENT_PREFIX = "inprogress";
     public static final String COMPLETED_LOGSEGMENT_PREFIX = "logrecs";
     public static final String DISALLOW_PLACEMENT_IN_REGION_FEATURE_NAME = "disallow_bookie_placement";
-    public static final byte[] CONTROL_RECORD_CONTENT = "control".getBytes(UTF_8);
+    static final byte[] CONTROL_RECORD_CONTENT = "control".getBytes(UTF_8);
 
     // An ACL that gives all permissions to node creators and read permissions only to everyone else.
     public static final List<ACL> EVERYONE_READ_CREATOR_ALL =

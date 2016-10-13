@@ -622,7 +622,7 @@ public class LogSegmentMetadata {
 
     static LogSegmentMetadata parseDataV1(String path, byte[] data, String[] parts)
         throws IOException {
-        long versionStatusCount = Long.valueOf(parts[0]);
+        long versionStatusCount = Long.parseLong(parts[0]);
 
         long version = versionStatusCount & METADATA_VERSION_MASK;
         assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
@@ -637,8 +637,8 @@ public class LogSegmentMetadata {
         assert (status >= 0 && status <= METADATA_STATUS_BIT_MAX);
 
         if (parts.length == 3) {
-            long ledgerId = Long.valueOf(parts[1]);
-            long txId = Long.valueOf(parts[2]);
+            long ledgerId = Long.parseLong(parts[1]);
+            long txId = Long.parseLong(parts[2]);
             return new LogSegmentMetadataBuilder(path, llmv, ledgerId, txId)
                     .setRegionId(regionId)
                     .setStatus(status)
@@ -647,10 +647,10 @@ public class LogSegmentMetadata {
             long recordCount = (versionStatusCount & LOGRECORD_COUNT_MASK) >> LOGRECORD_COUNT_SHIFT;
             assert (recordCount >= Integer.MIN_VALUE && recordCount <= Integer.MAX_VALUE);
 
-            long ledgerId = Long.valueOf(parts[1]);
-            long firstTxId = Long.valueOf(parts[2]);
-            long lastTxId = Long.valueOf(parts[3]);
-            long completionTime = Long.valueOf(parts[4]);
+            long ledgerId = Long.parseLong(parts[1]);
+            long firstTxId = Long.parseLong(parts[2]);
+            long lastTxId = Long.parseLong(parts[3]);
+            long completionTime = Long.parseLong(parts[4]);
             return new LogSegmentMetadataBuilder(path, llmv, ledgerId, firstTxId)
                 .setInprogress(false)
                 .setLastTxId(lastTxId)
@@ -667,7 +667,7 @@ public class LogSegmentMetadata {
 
     static LogSegmentMetadata parseDataV2(String path, byte[] data, String[] parts)
         throws IOException {
-        long versionStatusCount = Long.valueOf(parts[0]);
+        long versionStatusCount = Long.parseLong(parts[0]);
 
         long version = versionStatusCount & METADATA_VERSION_MASK;
         assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
@@ -682,9 +682,9 @@ public class LogSegmentMetadata {
         assert (status >= 0 && status <= METADATA_STATUS_BIT_MAX);
 
         if (parts.length == 4) {
-            long ledgerId = Long.valueOf(parts[1]);
-            long txId = Long.valueOf(parts[2]);
-            long logSegmentSequenceNumber = Long.valueOf(parts[3]);
+            long ledgerId = Long.parseLong(parts[1]);
+            long txId = Long.parseLong(parts[2]);
+            long logSegmentSequenceNumber = Long.parseLong(parts[3]);
             return new LogSegmentMetadataBuilder(path, llmv, ledgerId, txId)
                 .setLogSegmentSequenceNo(logSegmentSequenceNumber)
                 .setRegionId(regionId)
@@ -694,13 +694,13 @@ public class LogSegmentMetadata {
             long recordCount = (versionStatusCount & LOGRECORD_COUNT_MASK) >> LOGRECORD_COUNT_SHIFT;
             assert (recordCount >= Integer.MIN_VALUE && recordCount <= Integer.MAX_VALUE);
 
-            long ledgerId = Long.valueOf(parts[1]);
-            long firstTxId = Long.valueOf(parts[2]);
-            long lastTxId = Long.valueOf(parts[3]);
-            long completionTime = Long.valueOf(parts[4]);
-            long logSegmentSequenceNumber = Long.valueOf(parts[5]);
-            long lastEntryId = Long.valueOf(parts[6]);
-            long lastSlotId = Long.valueOf(parts[7]);
+            long ledgerId = Long.parseLong(parts[1]);
+            long firstTxId = Long.parseLong(parts[2]);
+            long lastTxId = Long.parseLong(parts[3]);
+            long completionTime = Long.parseLong(parts[4]);
+            long logSegmentSequenceNumber = Long.parseLong(parts[5]);
+            long lastEntryId = Long.parseLong(parts[6]);
+            long lastSlotId = Long.parseLong(parts[7]);
             return new LogSegmentMetadataBuilder(path, llmv, ledgerId, firstTxId)
                 .setInprogress(false)
                 .setLastTxId(lastTxId)
@@ -721,7 +721,7 @@ public class LogSegmentMetadata {
 
     static LogSegmentMetadata parseDataVersionsWithMinActiveDLSN(String path, byte[] data, String[] parts)
         throws IOException {
-        long versionStatusCount = Long.valueOf(parts[0]);
+        long versionStatusCount = Long.parseLong(parts[0]);
 
         long version = versionStatusCount & METADATA_VERSION_MASK;
         assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
@@ -737,11 +737,11 @@ public class LogSegmentMetadata {
         assert (status >= 0 && status <= METADATA_STATUS_BIT_MAX);
 
         if (parts.length == 6) {
-            long ledgerId = Long.valueOf(parts[1]);
-            long txId = Long.valueOf(parts[2]);
-            long logSegmentSequenceNumber = Long.valueOf(parts[3]);
-            long minActiveEntryId = Long.valueOf(parts[4]);
-            long minActiveSlotId = Long.valueOf(parts[5]);
+            long ledgerId = Long.parseLong(parts[1]);
+            long txId = Long.parseLong(parts[2]);
+            long logSegmentSequenceNumber = Long.parseLong(parts[3]);
+            long minActiveEntryId = Long.parseLong(parts[4]);
+            long minActiveSlotId = Long.parseLong(parts[5]);
 
             LogSegmentMetadataBuilder builder = new LogSegmentMetadataBuilder(path, llmv, ledgerId, txId)
                 .setLogSegmentSequenceNo(logSegmentSequenceNumber)
@@ -757,15 +757,15 @@ public class LogSegmentMetadata {
             long recordCount = (versionStatusCount & LOGRECORD_COUNT_MASK) >> LOGRECORD_COUNT_SHIFT;
             assert (recordCount >= Integer.MIN_VALUE && recordCount <= Integer.MAX_VALUE);
 
-            long ledgerId = Long.valueOf(parts[1]);
-            long firstTxId = Long.valueOf(parts[2]);
-            long lastTxId = Long.valueOf(parts[3]);
-            long completionTime = Long.valueOf(parts[4]);
-            long logSegmentSequenceNumber = Long.valueOf(parts[5]);
-            long lastEntryId = Long.valueOf(parts[6]);
-            long lastSlotId = Long.valueOf(parts[7]);
-            long minActiveEntryId = Long.valueOf(parts[8]);
-            long minActiveSlotId = Long.valueOf(parts[9]);
+            long ledgerId = Long.parseLong(parts[1]);
+            long firstTxId = Long.parseLong(parts[2]);
+            long lastTxId = Long.parseLong(parts[3]);
+            long completionTime = Long.parseLong(parts[4]);
+            long logSegmentSequenceNumber = Long.parseLong(parts[5]);
+            long lastEntryId = Long.parseLong(parts[6]);
+            long lastSlotId = Long.parseLong(parts[7]);
+            long minActiveEntryId = Long.parseLong(parts[8]);
+            long minActiveSlotId = Long.parseLong(parts[9]);
             LogSegmentMetadataBuilder builder = new LogSegmentMetadataBuilder(path, llmv, ledgerId, firstTxId)
                 .setInprogress(false)
                 .setLastTxId(lastTxId)
@@ -791,7 +791,7 @@ public class LogSegmentMetadata {
 
     static LogSegmentMetadata parseDataVersionsWithSequenceId(String path, byte[] data, String[] parts)
         throws IOException {
-        long versionStatusCount = Long.valueOf(parts[0]);
+        long versionStatusCount = Long.parseLong(parts[0]);
 
         long version = versionStatusCount & METADATA_VERSION_MASK;
         assert (version >= Integer.MIN_VALUE && version <= Integer.MAX_VALUE);
@@ -807,12 +807,12 @@ public class LogSegmentMetadata {
         assert (status >= 0 && status <= METADATA_STATUS_BIT_MAX);
 
         if (parts.length == 7) {
-            long ledgerId = Long.valueOf(parts[1]);
-            long txId = Long.valueOf(parts[2]);
-            long logSegmentSequenceNumber = Long.valueOf(parts[3]);
-            long minActiveEntryId = Long.valueOf(parts[4]);
-            long minActiveSlotId = Long.valueOf(parts[5]);
-            long startSequenceId = Long.valueOf(parts[6]);
+            long ledgerId = Long.parseLong(parts[1]);
+            long txId = Long.parseLong(parts[2]);
+            long logSegmentSequenceNumber = Long.parseLong(parts[3]);
+            long minActiveEntryId = Long.parseLong(parts[4]);
+            long minActiveSlotId = Long.parseLong(parts[5]);
+            long startSequenceId = Long.parseLong(parts[6]);
 
             LogSegmentMetadataBuilder builder = new LogSegmentMetadataBuilder(path, llmv, ledgerId, txId)
                     .setLogSegmentSequenceNo(logSegmentSequenceNumber)
@@ -827,16 +827,16 @@ public class LogSegmentMetadata {
             long recordCount = (versionStatusCount & LOGRECORD_COUNT_MASK) >> LOGRECORD_COUNT_SHIFT;
             assert (recordCount >= Integer.MIN_VALUE && recordCount <= Integer.MAX_VALUE);
 
-            long ledgerId = Long.valueOf(parts[1]);
-            long firstTxId = Long.valueOf(parts[2]);
-            long lastTxId = Long.valueOf(parts[3]);
-            long completionTime = Long.valueOf(parts[4]);
-            long logSegmentSequenceNumber = Long.valueOf(parts[5]);
-            long lastEntryId = Long.valueOf(parts[6]);
-            long lastSlotId = Long.valueOf(parts[7]);
-            long minActiveEntryId = Long.valueOf(parts[8]);
-            long minActiveSlotId = Long.valueOf(parts[9]);
-            long startSequenceId = Long.valueOf(parts[10]);
+            long ledgerId = Long.parseLong(parts[1]);
+            long firstTxId = Long.parseLong(parts[2]);
+            long lastTxId = Long.parseLong(parts[3]);
+            long completionTime = Long.parseLong(parts[4]);
+            long logSegmentSequenceNumber = Long.parseLong(parts[5]);
+            long lastEntryId = Long.parseLong(parts[6]);
+            long lastSlotId = Long.parseLong(parts[7]);
+            long minActiveEntryId = Long.parseLong(parts[8]);
+            long minActiveSlotId = Long.parseLong(parts[9]);
+            long startSequenceId = Long.parseLong(parts[10]);
             LogSegmentMetadataBuilder builder = new LogSegmentMetadataBuilder(path, llmv, ledgerId, firstTxId)
                     .setInprogress(false)
                     .setLastTxId(lastTxId)
@@ -867,7 +867,7 @@ public class LogSegmentMetadata {
         String[] parts = new String(data, UTF_8).split(";");
         long version;
         try {
-            version = Long.valueOf(parts[0]) & METADATA_VERSION_MASK;
+            version = Long.parseLong(parts[0]) & METADATA_VERSION_MASK;
         } catch (Exception exc) {
             throw new IOException("Invalid ledger entry, "
                 + new String(data, UTF_8));

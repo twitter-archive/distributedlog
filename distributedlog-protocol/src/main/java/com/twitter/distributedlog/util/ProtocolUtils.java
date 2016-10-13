@@ -20,16 +20,14 @@ package com.twitter.distributedlog.util;
 import java.util.zip.CRC32;
 
 import com.twitter.distributedlog.DLSN;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * With CRC embedded in the application, we have to keep track of per api crc. Ideally this
  * would be done by thrift.
  */
 public class ProtocolUtils {
-
-    private static final Logger logger = LoggerFactory.getLogger(ProtocolUtils.class);
 
     // For request payload checksum
     private static final ThreadLocal<CRC32> requestCRC = new ThreadLocal<CRC32>() {
@@ -45,7 +43,7 @@ public class ProtocolUtils {
     public static Long writeOpCRC32(String stream, byte[] payload) {
         CRC32 crc = requestCRC.get();
         try {
-            crc.update(stream.getBytes());
+            crc.update(stream.getBytes(UTF_8));
             crc.update(payload);
             return crc.getValue();
         } finally {
@@ -59,9 +57,8 @@ public class ProtocolUtils {
     public static Long truncateOpCRC32(String stream, DLSN dlsn) {
         CRC32 crc = requestCRC.get();
         try {
-            crc.update(stream.getBytes());
+            crc.update(stream.getBytes(UTF_8));
             crc.update(dlsn.serializeBytes());
-            long result = crc.getValue();
             return crc.getValue();
         } finally {
             crc.reset();
@@ -74,8 +71,7 @@ public class ProtocolUtils {
     public static Long streamOpCRC32(String stream) {
         CRC32 crc = requestCRC.get();
         try {
-            crc.update(stream.getBytes());
-            long result = crc.getValue();
+            crc.update(stream.getBytes(UTF_8));
             return crc.getValue();
         } finally {
             crc.reset();

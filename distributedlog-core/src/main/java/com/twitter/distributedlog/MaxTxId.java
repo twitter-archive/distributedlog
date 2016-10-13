@@ -89,7 +89,7 @@ class MaxTxId {
             }
             String txidStr = Long.toString(maxTxId);
             try {
-                Stat stat = zkc.get().setData(path, txidStr.getBytes("UTF-8"), -1);
+                zkc.get().setData(path, txidStr.getBytes("UTF-8"), -1);
                 currentMax = maxTxId;
             } catch (Exception e) {
                 LOG.error("Error writing new MaxTxId value {}", maxTxId, e);

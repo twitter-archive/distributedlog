@@ -37,11 +37,6 @@ public interface RateLimiter {
     };
 
     public static abstract class Builder {
-        protected int limit;
-        public Builder setLimit(int limit) {
-            this.limit = limit;
-            return this;
-        }
         public abstract RateLimiter build();
     }
 
