@@ -118,7 +118,6 @@ public class DistributedLogServerApp {
                         return ReflectionUtils.newInstance(name, StatsProvider.class);
                     }
                 }).or(new NullStatsProvider());
-        statsProvider.start(dlConf);
 
         final DistributedLogServer server = DistributedLogServer.runServer(
                 getOptionalStringArg(cmdline, "u"),

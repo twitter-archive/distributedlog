@@ -156,7 +156,7 @@ public class TestDistributedLogMultiStreamWriter {
                 .flushIntervalMs(1000)
                 .scheduler(executorService)
                 .build();
-        verify(executorService, times(1)).scheduleAtFixedRate(writer, 1000, 1000, TimeUnit.MILLISECONDS);
+        verify(executorService, times(1)).scheduleAtFixedRate(writer, 1000000, 1000000, TimeUnit.MICROSECONDS);
     }
 
     @Test(timeout = 20000)

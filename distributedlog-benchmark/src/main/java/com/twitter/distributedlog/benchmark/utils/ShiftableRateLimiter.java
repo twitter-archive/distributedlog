@@ -31,6 +31,8 @@ public class ShiftableRateLimiter implements Runnable {
     private final RateLimiter rateLimiter;
     private final ScheduledExecutorService executor;
     private final double initialRate, maxRate, changeRate;
+    private final long changeInterval;
+    private final TimeUnit changeIntervalUnit;
     private double nextRate;
 
     public ShiftableRateLimiter(double initialRate,
@@ -42,9 +44,20 @@ public class ShiftableRateLimiter implements Runnable {
         this.maxRate = maxRate;
         this.changeRate = changeRate;
         this.nextRate = initialRate;
+        this.changeInterval = changeInterval;
+        this.changeIntervalUnit = changeIntervalUnit;
         this.rateLimiter = RateLimiter.create(initialRate);
         this.executor = Executors.newSingleThreadScheduledExecutor();
         this.executor.scheduleAtFixedRate(this, changeInterval, changeInterval, changeIntervalUnit);
+    }
+
+    public ShiftableRateLimiter duplicate() {
+        return new ShiftableRateLimiter(
+                initialRate,
+                maxRate,
+                changeRate,
+                changeInterval,
+                changeIntervalUnit);
     }
 
     @Override

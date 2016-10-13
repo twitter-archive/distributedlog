@@ -79,6 +79,8 @@ public class Benchmarker {
     int sendBufferSize = 1024 * 1024;
     int recvBufferSize = 1024 * 1024;
     boolean enableBatching = false;
+    int batchBufferSize = 256 * 1024;
+    int batchFlushIntervalMicros = 2000;
 
     final DistributedLogConfiguration conf = new DistributedLogConfiguration();
     final StatsReceiver statsReceiver = new OstrichStatsReceiver();
@@ -116,7 +118,9 @@ public class Benchmarker {
         options.addOption("rfh", "read-from-head", false, "Read from head of the stream");
         options.addOption("sb", "send-buffer", true, "Channel send buffer size, in bytes");
         options.addOption("rb", "recv-buffer", true, "Channel recv buffer size, in bytes");
-        options.addOption("bt", "enable-batch", true, "Enable batching on writers");
+        options.addOption("bt", "enable-batch", false, "Enable batching on writers");
+        options.addOption("bbs", "batch-buffer-size", true, "The batch buffer size in bytes");
+        options.addOption("bfi", "batch-flush-interval", true, "The batch buffer flush interval in micros");
         options.addOption("h", "help", false, "Print usage.");
     }
 
@@ -217,6 +221,12 @@ public class Benchmarker {
         handshakeWithClientInfo = cmdline.hasOption("hsci");
         readFromHead = cmdline.hasOption("rfh");
         enableBatching = cmdline.hasOption("bt");
+        if (cmdline.hasOption("bbs")) {
+            batchBufferSize = Integer.parseInt(cmdline.getOptionValue("bbs"));
+        }
+        if (cmdline.hasOption("bfi")) {
+            batchFlushIntervalMicros = Integer.parseInt(cmdline.getOptionValue("bfi"));
+        }
 
         Preconditions.checkArgument(shardId >= 0, "shardId must be >= 0");
         Preconditions.checkArgument(numStreams > 0, "numStreams must be > 0");
@@ -295,7 +305,9 @@ public class Benchmarker {
                 handshakeWithClientInfo,
                 sendBufferSize,
                 recvBufferSize,
-                enableBatching);
+                enableBatching,
+                batchBufferSize,
+                batchFlushIntervalMicros);
     }
 
     protected WriterWorker createWriteWorker(
@@ -317,7 +329,9 @@ public class Benchmarker {
             boolean handshakeWithClientInfo,
             int sendBufferSize,
             int recvBufferSize,
-            boolean enableBatching) {
+            boolean enableBatching,
+            int batchBufferSize,
+            int batchFlushIntervalMicros) {
         return new WriterWorker(
                 streamPrefix,
                 uri,
@@ -337,7 +351,9 @@ public class Benchmarker {
                 handshakeWithClientInfo,
                 sendBufferSize,
                 recvBufferSize,
-                enableBatching);
+                enableBatching,
+                batchBufferSize,
+                batchFlushIntervalMicros);
     }
 
     Worker runDLWriter() throws IOException {

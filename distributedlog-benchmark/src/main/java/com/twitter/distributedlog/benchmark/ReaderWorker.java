@@ -25,6 +25,7 @@ import com.twitter.distributedlog.AsyncLogReader;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.DistributedLogConfiguration;
 import com.twitter.distributedlog.DistributedLogManager;
+import com.twitter.distributedlog.LogRecordSet;
 import com.twitter.distributedlog.LogRecordWithDLSN;
 import com.twitter.distributedlog.benchmark.thrift.Message;
 import com.twitter.distributedlog.client.serverset.DLZkServerSet;
@@ -55,6 +56,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -69,6 +71,7 @@ public class ReaderWorker implements Worker {
     final int startStreamId;
     final int endStreamId;
     final ScheduledExecutorService executorService;
+    final ExecutorService callbackExecutor;
     final DistributedLogNamespace namespace;
     final DistributedLogManager[] dlms;
     final AsyncLogReader[] logReaders;
@@ -94,7 +97,7 @@ public class ReaderWorker implements Worker {
     final Counter invalidRecordsCounter;
     final Counter outOfOrderSequenceIdCounter;
 
-    class StreamReader implements FutureEventListener<LogRecordWithDLSN>, Runnable, Gauge<Number> {
+    class StreamReader implements FutureEventListener<List<LogRecordWithDLSN>>, Runnable, Gauge<Number> {
 
         final int streamIdx;
         final String streamName;
@@ -109,7 +112,31 @@ public class ReaderWorker implements Worker {
         }
 
         @Override
-        public void onSuccess(final LogRecordWithDLSN record) {
+        public void onSuccess(final List<LogRecordWithDLSN> records) {
+            for (final LogRecordWithDLSN record : records) {
+                if (record.isRecordSet()) {
+                    try {
+                        processRecordSet(record);
+                    } catch (IOException e) {
+                        onFailure(e);
+                    }
+                } else {
+                    processRecord(record);
+                }
+            }
+            readLoop();
+        }
+
+        public void processRecordSet(final LogRecordWithDLSN record) throws IOException {
+            LogRecordSet.Reader reader = LogRecordSet.of(record);
+            LogRecordWithDLSN nextRecord = reader.nextRecord();
+            while (null != nextRecord) {
+                processRecord(nextRecord);
+                nextRecord = reader.nextRecord();
+            }
+        }
+
+        public void processRecord(final LogRecordWithDLSN record) {
             Message msg;
             try {
                 msg = Utils.parseMessage(record.getPayload());
@@ -132,17 +159,8 @@ public class ReaderWorker implements Worker {
             } else {
                 negativeDeliveryStat.registerSuccessfulEvent(-deliveryLatency);
             }
-            synchronized (this) {
-                if (record.getSequenceId() <= prevSequenceId
-                        || (prevSequenceId >= 0L && record.getSequenceId() != prevSequenceId + 1)) {
-                    outOfOrderSequenceIdCounter.inc();
-                    LOG.warn("Encountered decreasing sequence id for stream {} : previous = {}, current = {}",
-                            new Object[]{streamIdx, prevSequenceId, record.getSequenceId()});
-                }
-                prevSequenceId = record.getSequenceId();
-            }
+
             prevDLSN = record.getDlsn();
-            readLoop();
         }
 
         @Override
@@ -162,7 +180,7 @@ public class ReaderWorker implements Worker {
             if (!running) {
                 return;
             }
-            logReaders[streamIdx].readNext().addEventListener(this);
+            logReaders[streamIdx].readBulk(10).addEventListener(this);
         }
 
         @Override
@@ -228,8 +246,13 @@ public class ReaderWorker implements Worker {
         this.outOfOrderSequenceIdCounter = this.statsLogger.getCounter("out_of_order_seq_id");
         this.executorService = Executors.newScheduledThreadPool(
                 readThreadPoolSize, new ThreadFactoryBuilder().setNameFormat("benchmark.reader-%d").build());
+        this.callbackExecutor = Executors.newFixedThreadPool(
+                Runtime.getRuntime().availableProcessors(),
+                new ThreadFactoryBuilder().setNameFormat("benchmark.reader-callback-%d").build());
         this.finagleNames = finagleNames;
         this.serverSets = createServerSets(serverSetPaths);
+
+        conf.setDeserializeRecordSetOnReads(false);
 
         if (truncationIntervalInSeconds > 0 && (!finagleNames.isEmpty() || !serverSetPaths.isEmpty())) {
             // Construct client for truncation
@@ -412,6 +435,7 @@ public class ReaderWorker implements Worker {
         }
         namespace.close();
         SchedulerUtils.shutdownScheduler(executorService, 2, TimeUnit.MINUTES);
+        SchedulerUtils.shutdownScheduler(callbackExecutor, 2, TimeUnit.MINUTES);
         if (this.dlc != null) {
             this.dlc.close();
         }

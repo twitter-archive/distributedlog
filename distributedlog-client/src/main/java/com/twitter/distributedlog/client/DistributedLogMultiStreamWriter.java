@@ -63,7 +63,7 @@ public class DistributedLogMultiStreamWriter implements Runnable {
         private DistributedLogClient _client = null;
         private List<String> _streams = null;
         private int _bufferSize = 16 * 1024; // 16k
-        private int _flushIntervalMs = 10; // 10ms
+        private long _flushIntervalMicros = 2000; // 2ms
         private CompressionCodec.Type _codec = CompressionCodec.Type.NONE;
         private ScheduledExecutorService _executorService = null;
         private long _requestTimeoutMs = 500; // 500ms
@@ -120,7 +120,19 @@ public class DistributedLogMultiStreamWriter implements Runnable {
          * @return builder
          */
         public Builder flushIntervalMs(int flushIntervalMs) {
-            this._flushIntervalMs = flushIntervalMs;
+            this._flushIntervalMicros = TimeUnit.MILLISECONDS.toMicros(flushIntervalMs);
+            return this;
+        }
+
+        /**
+         * Set the flush interval in microseconds.
+         *
+         * @param flushIntervalMicros
+         *          flush interval in microseconds.
+         * @return builder
+         */
+        public Builder flushIntervalMicros(int flushIntervalMicros) {
+            this._flushIntervalMicros = flushIntervalMicros;
             return this;
         }
 
@@ -247,7 +259,7 @@ public class DistributedLogMultiStreamWriter implements Runnable {
                     _streams,
                     _client,
                     Math.min(_bufferSize, MAX_LOGRECORDSET_SIZE),
-                    _flushIntervalMs,
+                    _flushIntervalMicros,
                     _requestTimeoutMs,
                     _firstSpeculativeTimeoutMs,
                     _maxSpeculativeTimeoutMs,
@@ -341,7 +353,7 @@ public class DistributedLogMultiStreamWriter implements Runnable {
     private DistributedLogMultiStreamWriter(List<String> streams,
                                             DistributedLogClient client,
                                             int bufferSize,
-                                            int flushIntervalMs,
+                                            long flushIntervalMicros,
                                             long requestTimeoutMs,
                                             int firstSpecultiveTimeoutMs,
                                             int maxSpeculativeTimeoutMs,
@@ -376,12 +388,12 @@ public class DistributedLogMultiStreamWriter implements Runnable {
         this.nextStreamId = new AtomicInteger(0);
         this.recordSetWriter = newRecordSetWriter();
 
-        if (flushIntervalMs > 0) {
+        if (flushIntervalMicros > 0) {
             this.scheduler.scheduleAtFixedRate(
                     this,
-                    flushIntervalMs,
-                    flushIntervalMs,
-                    TimeUnit.MILLISECONDS);
+                    flushIntervalMicros,
+                    flushIntervalMicros,
+                    TimeUnit.MICROSECONDS);
         }
     }
 
