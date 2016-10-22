@@ -15,14 +15,14 @@ This tutorial assumes you are starting from fresh and have no existing BookKeepe
 If you already have an existing BookKeeper or ZooKeeper cluster, you can checkout the deploy_ section
 for more details on how to deploy a production cluster.
 
-.. _deploy: ../operations/deployment
+.. _deploy: ../deployment/cluster
 
 Step 1: Download the binary
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Download_ the stable version of `DistributedLog` and un-zip it.
 
-.. _Download: ../download
+.. _Download: ./download
 
 ::
 
