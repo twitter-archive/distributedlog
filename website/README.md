@@ -22,58 +22,40 @@ website. This is the static content is what is actually hosted on the Apache
 DistributedLog website.
 
 ### Development setup
-Before working with the Jekyll code, you will need to install Jekyll:
 
-    $ gem install jekyll
-    $ gem install jekyll-redirect-from
-    $ gem install html-proofer
+First, make sure you have Ruby installed. The minimal ruby version is 2.0.0.
+
+Before working with the Jekyll code, you can use Ruby's Bundler Gem to install all the dependencies for building this website:
+
+    gem install bundler
+    bundle install
 
 *If you are on a Mac, you may need to install
 [Ruby Gems](https://rubygems.org/pages/download).*
 
-### Live development
-While you are working with the website, you can test and develop live. Run the
-following command in the root folder of the website:
+And use [pip](https://pypi.python.org/pypi/pip) to install docutils and pygments required for building the documentation:
 
-    $ jekyll serve
+    pip install docutils pygments
 
-Jekyll will start a webserver on port `4000`. As you make changes to the
-content, Jekyll will rebuild it automatically. This is helpful if you want to see
-how your changes will render in realtime.
+### Build website together with documentation
 
-In addition, you can run the tests via:
+You can run the `build.sh` at the root folder of `website` to build a local site.
 
-    $ rake test
+    $ build.sh local
 
-### Generating the static website
-Once you are done with your changes, you need to compile the static
-content for the website. This is what is actually hosted 
-on the Apache DistributedLog website.
+You can also build with the production settings. It will generate the content that is actually hosted in distributedlog website.
 
-You can build the static content by running the following command in the root
-website directory:
+    $ build.sh production
 
-    $ jekyll build
-
-Once built, it will be placed in the folder `content` inside of the root directory. 
-This directory will include images, HTML, CSS, and so on. In a typical Jekyll install
-this content would live in `_site` - it has been changed for the Apache DistributedLog website
+Once built, it will be placed in the folder `content` inside of the root directory.
+This directory will include images, HTML, CSS and so on. In a typical Jekyll install
+this content will live in `_site` - it has been changed for Apache DistributedLog website
 to work with the ASF Incubator publishing system.
 
-### Apache License
----
-Except as otherwise noted this software is licensed under the
-[Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0.html)
+### Run the server locally
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+You can run `bundle exec jekyll serve` locally to serve the generated static content to verify if the website works as expected.
 
-  http://www.apache.org/licenses/LICENSE-2.0
+    $ bundle exec jekyll serve
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
 
