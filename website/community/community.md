@@ -24,8 +24,21 @@ There are many ways to get help from the Apache DistributedLog community. The [m
   </thead>
   <tr>
     <td>
+      <strong>user</strong>@@distributedlog.incubator.apache.org<br>
+      <small>User related discussions</small>
+    </td>
+    <td class="text-center"><i class="fa fa-pencil-square-o"></i> <a href="mailto:user-subscribe@distributedlog.incubator.apache.org">Subscribe</a></td>
+    <td class="text-center"><i class="fa fa-pencil-square-o"></i> <a href="mailto:user-digest-subscribe@distributedlog.incubator.apache.org">Subscribe</a></td>
+    <td class="text-center"><i class="fa fa-pencil-square-o"></i> <a href="mailto:user-unsubscribe@distributedlog.incubator.apache.org">Unsubscribe</a></td>
+    <td class="text-center"><i class="fa fa-pencil-square-o"></i> <a href="mailto:user@distributedlog.incubator.apache.org">Post</a></td>
+    <td class="text-center">
+      <a href="http://mail-archives.apache.org/mod_mbox/incubator-distributedlog-user/">Archives</a> <br>
+    </td>
+  </tr>
+  <tr>
+    <td>
       <strong>dev</strong>@@distributedlog.incubator.apache.org<br>
-      <small>Users and Development related discussions</small>
+      <small>Development related discussions</small>
     </td>
     <td class="text-center"><i class="fa fa-pencil-square-o"></i> <a href="mailto:dev-subscribe@distributedlog.incubator.apache.org">Subscribe</a></td>
     <td class="text-center"><i class="fa fa-pencil-square-o"></i> <a href="mailto:dev-digest-subscribe@distributedlog.incubator.apache.org">Subscribe</a></td>
