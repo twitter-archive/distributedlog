@@ -17,8 +17,7 @@ distributedlog_version: "0.4.0-SNAPSHOT"
 distributedlog_version_short: "0.4.0"
 
 # the base hostname & protocol for your site
-# url: "http://distributedlog.incubator.apache.org"
-url: ""
+url: "http://distributedlog.incubator.apache.org"
 
 twitter_username: distributedlog
 twitter_url: https://twitter.com/distributedlog
