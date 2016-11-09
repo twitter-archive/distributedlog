@@ -506,7 +506,7 @@ def main():
   if modified_title != commit_title:
     print 'I\'ve re-written the title as follows to match the standard format:'
     print 'Original: {0}'.format(commit_title)
-    print 'Modified: {1}'.format(modified_title)
+    print 'Modified: {0}'.format(modified_title)
     result = raw_input('Would you like to use the modified title? (y/n): ')
     if result.lower() == 'y':
       commit_title = modified_title
