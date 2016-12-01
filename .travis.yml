@@ -24,9 +24,12 @@ before_install:
   - echo "MAVEN_OPTS='-Xmx3072m -XX:MaxPermSize=512m'" > ~/.mavenrc
 
 script:
-  - travis_retry mvn clean apache-rat:check
-  - travis_retry mvn clean install findbugs:check -DskipTests=true
-  - travis_wait 60 mvn package cobertura:cobertura coveralls:report
+  - travis_retry mvn --batch-mode clean apache-rat:check
+  - travis_retry mvn --batch-mode clean install findbugs:check -DskipTests=true
+
+# we build the report only after a successful build on master
+after_success:
+  - $TRAVIS_BRANCH == 'master' && travis_wait 60 mvn --batch-mode clean cobertura:cobertura coveralls:report
 
 cache:
   directories:
