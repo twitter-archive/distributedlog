@@ -20,15 +20,11 @@
 # * limitations under the License.
 # */
 
-BASEDIR=$(dirname "$0")
-DISTRIBUTEDLOG_ROOT="${BASEDIR}/.."
-
 set -e
 shopt -s dotglob
 
-cd ${DISTRIBUTEDLOG_ROOT}
-
-gitsha=`git rev-parse HEAD`
+DISTRIBUTEDLOG_ROOT=$(git rev-parse --show-toplevel)
+GITSHA=$(git rev-parse HEAD)
 
 # clean the dist
 find . -name lib | xargs rm -r
@@ -36,7 +32,7 @@ rm -rf dist/*
 
 # create the layout
 for module in distributedlog-service distributedlog-benchmark distributedlog-tutorials/distributedlog-basic distributedlog-tutorials/distributedlog-messaging; do
-    mkdir -p dist/release/${module}/{bin,conf,lib}
+    mkdir -p "dist/release/${module}/{bin,conf,lib}"
 done
 
 # build the package
@@ -69,7 +65,7 @@ cp -rf distributedlog-tutorials/distributedlog-messaging/target/distributedlog-m
 
 # release
 cd dist/release
-zip -r distributedlog-all-${gitsha}.zip distributedlog-service distributedlog-benchmark distributedlog-tutorials > /dev/null
-zip -r distributedlog-service-${gitsha}.zip distributedlog-service >/dev/null
-zip -r distributedlog-benchmark-${gitsha}.zip distributedlog-benchmark >/dev/null
-zip -r distributedlog-tutorials-${gitsha}.zip distributedlog-tutorials >/dev/null
+zip -r "distributedlog-all-${GITSHA}.zip" distributedlog-service distributedlog-benchmark distributedlog-tutorials > /dev/null
+zip -r "distributedlog-service-${GITSHA}.zip" distributedlog-service >/dev/null
+zip -r "distributedlog-benchmark-${GITSHA}.zip" distributedlog-benchmark >/dev/null
+zip -r "distributedlog-tutorials-${GITSHA}.zip" distributedlog-tutorials >/dev/null
