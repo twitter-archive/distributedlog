@@ -24,7 +24,7 @@ import com.twitter.distributedlog.io.CompressionCodec.Type;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
 import com.twitter.distributedlog.util.FutureUtils;
-import com.twitter.finagle.thrift.ClientId;
+import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.Future;
 import com.twitter.util.FutureEventListener;
 import com.twitter.util.Promise;
@@ -53,7 +53,7 @@ public class AtomicWriter {
         System.arraycopy(args, 2, messages, 0, messages.length);
 
         DistributedLogClient client = DistributedLogClientBuilder.newBuilder()
-                .clientId(ClientId.apply("atomic-writer"))
+                .clientId(ClientId$.MODULE$.apply("atomic-writer"))
                 .name("atomic-writer")
                 .thriftmux(true)
                 .finagleNameStr(finagleNameStr)

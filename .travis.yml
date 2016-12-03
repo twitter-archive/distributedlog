@@ -19,11 +19,16 @@ matrix:
   include:
     - os: osx
       osx_image: xcode8
+      env: SCALA_VERSION="2.10"
+    - os: osx
+      osx_image: xcode8
+      env: SCALA_VERSION="2.11"
 
 before_install:
   - echo "MAVEN_OPTS='-Xmx3072m -XX:MaxPermSize=512m'" > ~/.mavenrc
 
 script:
+  - travis_retry ./scripts/change-scala-version.sh $SCALA_VERSION
   - travis_retry mvn --batch-mode clean apache-rat:check
   - travis_retry mvn --batch-mode clean install findbugs:check -DskipTests=true
 

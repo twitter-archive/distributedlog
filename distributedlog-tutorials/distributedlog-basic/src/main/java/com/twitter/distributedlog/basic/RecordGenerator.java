@@ -21,7 +21,7 @@ import com.google.common.util.concurrent.RateLimiter;
 import com.twitter.distributedlog.DLSN;
 import com.twitter.distributedlog.service.DistributedLogClient;
 import com.twitter.distributedlog.service.DistributedLogClientBuilder;
-import com.twitter.finagle.thrift.ClientId;
+import com.twitter.finagle.thrift.ClientId$;
 import com.twitter.util.FutureEventListener;
 
 import java.nio.ByteBuffer;
@@ -50,7 +50,7 @@ public class RecordGenerator {
         RateLimiter limiter = RateLimiter.create(rate);
 
         DistributedLogClient client = DistributedLogClientBuilder.newBuilder()
-                .clientId(ClientId.apply("record-generator"))
+                .clientId(ClientId$.MODULE$.apply("record-generator"))
                 .name("record-generator")
                 .thriftmux(true)
                 .finagleNameStr(finagleNameStr)
