@@ -108,10 +108,10 @@ might have different requirements on tracking and coordinating positions. It is 
 to get it right with a single approach. For example, distributed databases might store
 the reader positions along with SSTables, so they would resume applying transactions
 from the positions stored in SSTables. Tracking reader positions could easily be done
-in application level using various stores (e.g. ZooKeeper, FileSystem, or Key/Value Stores).
+in application level using various stores (e.g. ZooKeeper, file system, or key/value stores).
 
 The log records could be cached in a service tier called *Read Proxy*, to serve
-large number of readers. Details on **Fan-in and Fan-out** can be found further into this doc.
+a large number of readers.
 
 Fan-in and Fan-out
 ------------------
