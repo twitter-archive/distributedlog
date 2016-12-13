@@ -19,7 +19,27 @@
 # */
 
 set -e
+shopt -s dotglob
 
-DLOG_ROOT=$(git rev-parse --show-toplevel)
+COMPONENT=$1
+if [[ -z "${COMPONENT}" ]]; then
+  echo "You need to specify the component" 2>&1
+  exit 1
+fi
 
-bash "${DLOG_ROOT}"/scripts/bundle benchmark
+cd "${DLOG_ROOT}"
+
+rm -rf "distributedlog-${COMPONENT}/lib"
+rm -rf "dist/distributedlog-${COMPONENT}*"
+
+mkdir -p "dist/distributedlog-${COMPONENT}"/{conf,lib}
+
+mvn install -Ptwitter-ostrich-provider -pl "distributedlog-${COMPONENT}" -am -DskipTests
+
+cp -rf distributedlog-"${COMPONENT}"/conf/* "dist/distributedlog-${COMPONENT}/conf/"
+cp -rf "distributedlog-${COMPONENT}"/lib/* "dist/distributedlog-${COMPONENT}/lib"
+cp -rf "distributedlog-${COMPONENT}"/target/distributedlog-"${COMPONENT}"-*.jar "dist/distributedlog-${COMPONENT}"
+
+cd dist
+
+zip -r "distributedlog-${COMPONENT}.zip" "distributedlog-${COMPONENT}" >/dev/null

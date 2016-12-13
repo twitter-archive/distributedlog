@@ -127,12 +127,12 @@ thousands of readers are consuming a same log stream.
 Guarantees
 ----------
 
-At a high-level, DistributedLog gives the following guarantees:
+At a high level, DistributedLog gives the following guarantees:
 
 * Records written by a writer to a log will be appended in the order they are written. That is, if a record *R1* is written by same writer as a record *R2*, *R1* will have a smaller sequence number than *R2*.
-* Readers will see records in same order they were written to the log.
-* All records were persisted on disks before acknowledges, to gurantee durability.
-* For a log with replication factor of N, DistributedLog tolerates up to N-1 server failures without losing any records appended to the log.
+* Readers see records in the same order they were written to the log.
+* All records are persisted on disk before acknowledgments, to gurantee durability.
+* For a log with replication factor of N, DistributedLog tolerates up to N-1 server failures without losing any records.
 
-More details on these guarantees are given in the design section of this documentation.
+More details on these guarantees are given in the [design section](http://distributedlog.incubator.apache.org/docs/latest/user_guide/design/main.html).
 
