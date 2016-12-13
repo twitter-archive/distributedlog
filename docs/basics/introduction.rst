@@ -108,10 +108,10 @@ might have different requirements on tracking and coordinating positions. It is 
 to get it right with a single approach. For example, distributed databases might store
 the reader positions along with SSTables, so they would resume applying transactions
 from the positions stored in SSTables. Tracking reader positions could easily be done
-in application level using various stores (e.g. ZooKeeper, FileSystem, or Key/Value Stores).
+in application level using various stores (e.g. ZooKeeper, file system, or key/value stores).
 
 The log records could be cached in a service tier called *Read Proxy*, to serve
-large number of readers. Details on **Fan-in and Fan-out** can be found further into this doc.
+a large number of readers.
 
 Fan-in and Fan-out
 ------------------
@@ -127,12 +127,12 @@ thousands of readers are consuming a same log stream.
 Guarantees
 ----------
 
-At a high-level, DistributedLog gives the following guarantees:
+At a high level, DistributedLog gives the following guarantees:
 
 * Records written by a writer to a log will be appended in the order they are written. That is, if a record *R1* is written by same writer as a record *R2*, *R1* will have a smaller sequence number than *R2*.
-* Readers will see records in same order they were written to the log.
-* All records were persisted on disks before acknowledges, to gurantee durability.
-* For a log with replication factor of N, DistributedLog tolerates up to N-1 server failures without losing any records appended to the log.
+* Readers see records in the same order they were written to the log.
+* All records are persisted on disk before acknowledgments, to gurantee durability.
+* For a log with replication factor of N, DistributedLog tolerates up to N-1 server failures without losing any records.
 
-More details on these guarantees are given in the design section of this documentation.
+More details on these guarantees are given in the [design section](http://distributedlog.incubator.apache.org/docs/latest/user_guide/design/main.html).
 
