@@ -401,7 +401,7 @@ public class DistributedLogMultiStreamWriter implements Runnable {
         return streams.get(streamId);
     }
 
-    LogRecordSet.Writer getLogRecordSetWriter() {
+    synchronized LogRecordSet.Writer getLogRecordSetWriter() {
         return recordSetWriter;
     }
 

@@ -15,20 +15,30 @@
 # limitations under the License.
 language: java
 
+# blacklist
+branches:
+  except:
+    - asf-site
+    - Release0.3.51-RC1
+    - mvn-repo
+    - gh-pages
+
 matrix:
   include:
     - os: osx
       osx_image: xcode8
+      env: SCALA_VERSION="2.10"
+    - os: osx
+      osx_image: xcode8
+      env: SCALA_VERSION="2.11"
 
 before_install:
   - echo "MAVEN_OPTS='-Xmx3072m -XX:MaxPermSize=512m'" > ~/.mavenrc
 
-install:
-  - travis_retry mvn -B install clean findbugs:check -U -DskipTests=true
-
 script:
-  - travis_retry mvn clean apache-rat:check
-  - travis_wait 60 mvn package 
+  - travis_retry ./scripts/change-scala-version.sh $SCALA_VERSION
+  - travis_retry mvn --batch-mode clean apache-rat:check
+  - travis_wait 60 mvn --batch-mode clean package findbugs:check
 
 cache:
   directories:
