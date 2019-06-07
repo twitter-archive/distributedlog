@@ -15,8 +15,8 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 -->
-<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<project xsi:schemaLocation="https://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="https://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="https://www.w3.org/2001/XMLSchema-instance">
   <modelVersion>4.0.0</modelVersion>
   <parent>
     <artifactId>distributedlog</artifactId>
@@ -27,7 +27,7 @@
   <groupId>com.twitter</groupId>
   <artifactId>distributedlog-basic</artifactId>
   <name>Apache DistributedLog :: Tutorials :: Basics</name>
-  <url>http://maven.apache.org</url>
+  <url>https://maven.apache.org</url>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.libdir>${basedir}/lib</project.libdir>
