@@ -85,7 +85,7 @@ For filing bugs, suggesting improvements, or requesting new features, help us ou
 
 ### Need Help?
 
-[Subscribe](mailto:dev-subscribe@distributedlog.incubator.apache.org) or [mail](mailto:dev@distributedlog.incubator.apache.org) the [dev@distributedlog.incubator.apache.org](mailto:dev@distributedlog.incubator.apache.org) list - Ask questions, find answers, join developement discussions and also help other users.
+[Subscribe](mailto:dev-subscribe@distributedlog.incubator.apache.org) or [mail](mailto:dev@distributedlog.incubator.apache.org) the [dev@distributedlog.incubator.apache.org](mailto:dev@distributedlog.incubator.apache.org) list - Ask questions, find answers, join development discussions and also help other users.
 
 ## Contributing
 
